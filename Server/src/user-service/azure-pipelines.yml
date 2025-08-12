@@ -1,0 +1,64 @@
+trigger:
+- main
+
+variables:
+  azureSubscription: 'Azure-Sensipro-Prod'
+  dockerRegistry: 'sensiproc.azurecr.io'
+  imageName: 'user-service'
+  k8sNamespace: 'sensipro-prod'
+  tag: '$(Build.BuildId)'
+
+stages:
+- stage: Build
+  jobs:
+  - job: BuildAndTest
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '18.x'
+    
+    - script: |
+        npm install
+        npm run build
+        npm test
+      displayName: 'Install & Test'
+    
+    - task: Docker@2
+      inputs:
+        containerRegistry: '$(dockerRegistry)'
+        repository: '$(imageName)'
+        command: 'buildAndPush'
+        Dockerfile: 'Dockerfile'
+        tags: |
+          $(tag)
+          latest
+      env:
+        NODE_ENV: production
+
+    - task: AzureContainerScan@0
+      inputs:
+        imageName: '$(dockerRegistry)/$(imageName):$(tag)'
+        severityThreshold: 'High'
+
+- stage: Deploy
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+  - job: DeployToAKS
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: HelmDeploy@0
+      inputs:
+        connectionType: 'Azure Resource Manager'
+        azureSubscription: '$(azureSubscription)'
+        azureResourceGroup: 'sensipro-rg'
+        kubernetesCluster: 'sensipro-aks'
+        namespace: '$(k8sNamespace)'
+        command: 'upgrade'
+        chartType: 'FilePath'
+        chartPath: 'helm/user-service'
+        releaseName: 'user-service'
+        overrideValues: 'image.repository=$(dockerRegistry)/$(imageName),image.tag=$(tag)'

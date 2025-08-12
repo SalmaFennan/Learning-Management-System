@@ -1,0 +1,11 @@
+- task: Kubernetes@1
+  displayName: 'Deploy to Kubernetes'
+  inputs:
+    connectionType: 'Kubernetes Service Connection'
+    kubernetesServiceEndpoint: 'your-k8s-service-connection'
+    command: 'apply'
+    arguments: '-f k8s/course-service-deployment.yaml -f k8s/course-service-service.yaml'
+    secretType: 'dockerRegistry'
+    containerRegistryType: 'Azure Container Registry'
+    azureSubscriptionEndpoint: '$(dockerRegistryServiceConnection)'
+    azureContainerRegistry: '$(dockerRegistryServiceConnection).azurecr.io'

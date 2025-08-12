@@ -1,0 +1,33 @@
+version: '3.8'
+services:
+  course-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5002:5002"
+    environment:
+      - NODE_ENV=development
+      - PORT=5002
+      - MONGODB_URI=mongodb://mongo:27017/course
+      - JWT_SECRET=your-secure-jwt-secret
+      - FRONTEND_URL=http://localhost:3000
+      - CLOUDINARY_CLOUD_NAME=your_cloud_name
+      - CLOUDINARY_API_KEY=your_api_key
+      - CLOUDINARY_API_SECRET=your_api_secret
+      - CLOUDINARY_SECURE=true
+      - RAZORPAY_KEY_ID=your-razorpay-key-id
+      - RAZORPAY_SECRET=your-razorpay-secret
+      - USE_REDIS=false
+    volumes:
+      - ./:/usr/src/app
+    depends_on:
+      - mongo
+  mongo:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+volumes:
+  mongo-data:
