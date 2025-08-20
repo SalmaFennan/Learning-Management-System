@@ -1,0 +1,54 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  dockerRegistryServiceConnection: 'sensiProACRConnection'
+  imageRepository: 'payment-service'
+  containerRegistry: 'mylmsregistry.azurecr.io'
+  kubernetesServiceConnection: 'sensiProAKSConnection'
+  imageTag: '$(Build.BuildId)'
+  imagePullSecret: 'acr-secret'
+
+steps:
+- task: Docker@2
+  displayName: 'Build and push Payment Service image'
+  inputs:
+    command: 'buildAndPush'
+    repository: '$(imageRepository)'
+    dockerfile: 'Dockerfile'
+    containerRegistry: '$(dockerRegistryServiceConnection)'
+    tags: |
+      $(imageTag)
+      latest
+
+- script: |
+    docker save -o payment-service-image.tar $(containerRegistry)/$(imageRepository):$(imageTag)
+    trivy image --exit-code 1 --severity HIGH,CRITICAL $(containerRegistry)/$(imageRepository):$(imageTag)
+  displayName: 'Scan Payment Service image with Trivy'
+
+- task: KubernetesManifest@1
+  displayName: 'Create imagePullSecret'
+  inputs:
+    action: 'createSecret'
+    kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+    secretName: '$(imagePullSecret)'
+    dockerRegistryEndpoint: '$(dockerRegistryServiceConnection)'
+
+- task: KubernetesManifest@1
+  displayName: 'Deploy to AKS'
+  inputs:
+    action: 'deploy'
+    kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+    namespace: 'default'
+    manifests: |
+      k8s/payment-service-deployment.yaml
+      k8s/payment-service-service.yaml
+    containers: |
+      $(containerRegistry)/$(imageRepository):$(imageTag)
+    imagePullSecrets: |
+      $(imagePullSecret)

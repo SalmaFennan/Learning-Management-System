@@ -22,18 +22,21 @@ spec:
         - containerPort: 5001
         env:
         - name: NODE_ENV
-          value: "production"
+          valueFrom:
+            secretKeyRef:
+              name: lms-secrets
+              key: node-env
         - name: PORT
           value: "5001"
         - name: MONGO_URI
           valueFrom:
             secretKeyRef:
-              name: auth-service-secrets
+              name: lms-secrets
               key: mongo-uri
         - name: JWT_SECRET
           valueFrom:
             secretKeyRef:
-              name: auth-service-secrets
+              name: lms-secrets
               key: jwt-secret
         - name: JWT_EXPIRY
           value: "24h"

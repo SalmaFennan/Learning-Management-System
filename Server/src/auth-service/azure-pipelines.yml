@@ -19,25 +19,28 @@ stages:
       inputs:
         versionSpec: '18.x'
     
-    # Naviguez vers le bon répertoire
     - script: |
         cd Server/src/auth-service
         npm install
-        # Supprimez npm run build et npm test si ces scripts n'existent pas
         echo "Build completed successfully"
       displayName: 'Install Dependencies'
     
     - task: Docker@2
       inputs:
-        containerRegistry: '$(azureSubscription)'  # Utilisez la service connection
+        containerRegistry: '$(azureSubscription)'
         repository: '$(imageName)'
         command: 'buildAndPush'
-        Dockerfile: 'Server/src/auth-service/Dockerfile'  # Chemin correct
-        buildContext: 'Server/src/auth-service'  # Contexte de build
+        Dockerfile: 'Server/src/auth-service/Dockerfile'
+        buildContext: 'Server/src/auth-service'
         tags: |
           $(tag)
           latest
       displayName: 'Build and Push Docker Image'
+
+    - script: |
+        docker save -o auth-service-image.tar $(dockerRegistry)/$(imageName):$(tag)
+        trivy image --exit-code 1 --severity HIGH,CRITICAL $(dockerRegistry)/$(imageName):$(tag)
+      displayName: 'Scan Auth Service image with Trivy'
 
 - stage: Deploy
   dependsOn: Build
@@ -50,7 +53,7 @@ stages:
     - task: KubernetesManifest@0
       inputs:
         action: 'deploy'
-        kubernetesServiceConnection: 'aks-sensipro-connection'
+        kubernetesServiceConnection: 'sensiProAKSConnection'
         namespace: '$(k8sNamespace)'
         manifests: |
           k8s/auth-service-deployment.yaml

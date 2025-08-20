@@ -8,6 +8,8 @@ RUN apk add --no-cache tini && \
     chown -R app:app /usr/src/app
 USER app
 COPY package*.json ./
+RUN ls -la  # Vérifie les fichiers présents
+RUN [ -f package-lock.json ] && echo "package-lock.json exists" || echo "package-lock.json missing"
 RUN npm ci --omit=dev
 COPY . .
 ENV NODE_ENV=production

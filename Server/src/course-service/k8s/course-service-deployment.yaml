@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: course-service-deployment
+  namespace: default
   labels:
     app: course-service
 spec:
@@ -16,47 +17,56 @@ spec:
     spec:
       containers:
       - name: course-service
-        image: youracr.azurecr.io/course-service:latest # Remplace par ton ACR et repo
+        image: mylmsregistry.azurecr.io/course-service:latest
         ports:
         - containerPort: 5002
         env:
         - name: NODE_ENV
-          value: "production"
+          valueFrom:
+            secretKeyRef:
+              name: lms-secrets
+              key: node-env
         - name: PORT
           value: "5002"
         - name: MONGODB_URI
-          value: "mongodb://mongo:27017/course" # Ajuste si MongoDB est externe
+          valueFrom:
+            secretKeyRef:
+              name: lms-secrets
+              key: mongo-uri
         - name: JWT_SECRET
           valueFrom:
             secretKeyRef:
-              name: course-service-secrets
+              name: lms-secrets
               key: jwt-secret
         - name: FRONTEND_URL
-          value: "http://your-frontend-url"
+          valueFrom:
+            secretKeyRef:
+              name: lms-secrets
+              key: frontend-url
         - name: CLOUDINARY_CLOUD_NAME
           valueFrom:
             secretKeyRef:
-              name: course-service-secrets
+              name: lms-secrets
               key: cloudinary-cloud-name
         - name: CLOUDINARY_API_KEY
           valueFrom:
             secretKeyRef:
-              name: course-service-secrets
+              name: lms-secrets
               key: cloudinary-api-key
         - name: CLOUDINARY_API_SECRET
           valueFrom:
             secretKeyRef:
-              name: course-service-secrets
+              name: lms-secrets
               key: cloudinary-api-secret
         - name: RAZORPAY_KEY_ID
           valueFrom:
             secretKeyRef:
-              name: course-service-secrets
+              name: lms-secrets
               key: razorpay-key-id
         - name: RAZORPAY_SECRET
           valueFrom:
             secretKeyRef:
-              name: course-service-secrets
+              name: lms-secrets
               key: razorpay-secret
         - name: USE_REDIS
           value: "false"

@@ -6,8 +6,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { isEmail, isPassword } from "../Helpers/regexMatcher";
 import HomeLayout from "../Layouts/HomeLayout";
-import { creatAccount } from "../Redux/Slices/AuthSlice";
-
+import { createAccount } from "../Redux/Slices/AuthSlice";
 function Signup(){
 
     const dispatch = useDispatch();

@@ -1,0 +1,59 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  dockerRegistryServiceConnection: 'sensiProACRConnection'
+  kubernetesServiceConnection: 'sensiProAKSConnection'
+  containerRegistry: 'mylmsregistry.azurecr.io'
+  imageTag: '$(Build.BuildId)'
+
+steps:
+- checkout: self
+
+- task: Bash@3
+  displayName: 'Build and deploy all microservices'
+  inputs:
+    targetType: 'inline'
+    script: |
+      # Liste des répertoires de microservices
+      for dir in api-gateway auth-service user-service payment-service course-service analytics-service Client; do
+        cd $dir
+        echo "Building and pushing $dir image..."
+        docker build -t $(containerRegistry)/$dir:$(imageTag) -t $(containerRegistry)/$dir:latest .
+        docker push $(containerRegistry)/$dir:$(imageTag)
+        docker push $(containerRegistry)/$dir:latest
+        cd ..
+      done
+  env:
+    AZURE_CREDENTIALS: $(azureServiceConnection)
+
+- script: |
+    for dir in api-gateway auth-service user-service payment-service course-service analytics-service Client; do
+      echo "Scanning $dir image with Trivy..."
+      docker save -o ${dir}-image.tar $(containerRegistry)/$dir:$(imageTag)
+      trivy image --exit-code 1 --severity HIGH,CRITICAL $(containerRegistry)/$dir:$(imageTag)
+    done
+  displayName: 'Scan all images with Trivy'
+
+- task: Kubernetes@1
+  displayName: 'Deploy all microservices to AKS'
+  inputs:
+    kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+    namespace: 'default'
+    command: 'apply'
+    arguments: |
+      -f k8s/api-gateway-deployment.yaml -f k8s/api-gateway-service.yaml
+      -f k8s/auth-service-deployment.yaml -f k8s/auth-service-service.yaml
+      -f k8s/course-service-deployment.yaml -f k8s/course-service-service.yaml
+      -f k8s/payment-service-deployment.yaml -f k8s/payment-service-service.yaml
+      -f k8s/user-service-deployment.yaml -f k8s/user-service-service.yaml
+      -f k8s/frontend-deployment.yaml -f k8s/frontend-service.yaml
+    secretType: 'dockerRegistry'
+    containerRegistryType: 'Azure Container Registry'
+    azureSubscriptionEndpoint: '$(dockerRegistryServiceConnection)'
+    azureContainerRegistry: '$(containerRegistry)'

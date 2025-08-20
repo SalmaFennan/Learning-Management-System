@@ -1,7 +1,7 @@
 import cloudinary from 'cloudinary';
 import fs from 'fs/promises';
 import asyncHandler from '../middlewares/asyncHandler.middleware.js';
-import Course from '../../models/course.model.js';
+import Course from '../models/course.model.js';
 import AppError from '../utils/error.util.js';
 
 /**

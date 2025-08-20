@@ -1,35 +1,18 @@
-export const authenticate = (roles = []) => {
-  return async (req, res, next) => {
-    try {
-      // 1. Extraction du token (multi-sources)
-      const token = req.cookies?.token || req.headers.authorization?.split(' ')[1];
-      if (!token) throw new AppError('Authentication required', 401);
+import jwt from 'jsonwebtoken';
+import AppError from '../utils/error.util.js';
 
-      // 2. Vérification JWT
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+export const validateToken = (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1] || req.cookies.token;
 
-      // 3. Vérification des rôles
-      if (roles.length > 0 && !roles.includes(decoded.role)) {
-        throw new AppError('Insufficient permissions', 403);
-      }
+  if (!token) {
+    return next(new AppError('No token provided', 401));
+  }
 
-      // 4. Injection des données utilisateur
-      req.user = {
-        id: decoded.id,
-        role: decoded.role,
-        email: decoded.email
-      };
-
-      next();
-    } catch (err) {
-      // Gestion spécifique des erreurs JWT
-      if (err.name === 'TokenExpiredError') {
-        return next(new AppError('Session expired', 401));
-      }
-      if (err.name === 'JsonWebTokenError') {
-        return next(new AppError('Invalid token', 401));
-      }
-      next(err);
-    }
-  };
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return next(new AppError('Invalid token', 401));
+  }
 };

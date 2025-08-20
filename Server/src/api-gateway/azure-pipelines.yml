@@ -1,0 +1,47 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  dockerRegistryServiceConnection: 'sensiProACRConnection'
+  imageRepository: 'api-gateway'
+  containerRegistry: 'mylmsregistry.azurecr.io'
+  kubernetesServiceConnection: 'sensiProAKSConnection'
+  imageTag: '$(Build.BuildId)'
+
+steps:
+- task: Docker@2
+  displayName: 'Build and push API Gateway image to ACR'
+  inputs:
+    command: 'buildAndPush'
+    repository: '$(imageRepository)'
+    dockerfile: 'Dockerfile'
+    containerRegistry: '$(dockerRegistryServiceConnection)'
+    tags: |
+      $(imageTag)
+      latest
+
+- script: |
+    docker save -o api-gateway-image.tar $(containerRegistry)/$(imageRepository):$(imageTag)
+    trivy image --exit-code 1 --severity HIGH,CRITICAL $(containerRegistry)/$(imageRepository):$(imageTag)
+  displayName: 'Scan API Gateway image with Trivy'
+
+- task: Kubernetes@1
+  displayName: 'Deploy API Gateway to AKS'
+  inputs:
+    kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+    namespace: 'default'
+    command: 'apply'
+    arguments: '-f k8s/api-gateway-deployment.yaml -f k8s/api-gateway-service.yaml'
+    secretType: 'dockerRegistry'
+    containerRegistryType: 'Azure Container Registry'
+    azureSubscriptionEndpoint: '$(dockerRegistryServiceConnection)'
+    azureContainerRegistry: '$(containerRegistry)'
+
+- script: |
+    echo "Deployment completed. Check AKS pods with: kubectl get pods -n default"
+  displayName: 'Post-deployment message'

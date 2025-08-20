@@ -4,12 +4,11 @@ import { useDispatch } from "react-redux";
 import { Link } from "react-router-dom";
 
 import HomeLayout from "../../Layouts/HomeLayout";
-import { getuserData } from "../../Redux/Slices/AuthSlice";
-
+import { getUserData } from "../../Redux/Slices/AuthSlice";
 function CheckoutSuccess(){
     const dispatch = useDispatch();
     useEffect(() => {
-        dispatch(getuserData());
+        dispatch(getUserData());
     })
     return(
         <HomeLayout>

@@ -1,4 +1,3 @@
-// src/utils/cache.js
 import redis from 'redis';
 
 export const initializeRedis = async () => {

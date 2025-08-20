@@ -1,64 +1,48 @@
 trigger:
-- main
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
 
 variables:
-  azureSubscription: 'Azure-Sensipro-Prod'
-  dockerRegistry: 'sensiproc.azurecr.io'
-  imageName: 'user-service'
-  k8sNamespace: 'sensipro-prod'
-  tag: '$(Build.BuildId)'
+  dockerRegistryServiceConnection: 'sensiProACRConnection'
+  imageRepository: 'user-service'
+  containerRegistry: 'mylmsregistry.azurecr.io'
+  kubernetesServiceConnection: 'sensiProAKSConnection'
+  imageTag: '$(Build.BuildId)'
 
-stages:
-- stage: Build
-  jobs:
-  - job: BuildAndTest
-    pool:
-      vmImage: 'ubuntu-latest'
-    steps:
-    - task: NodeTool@0
-      inputs:
-        versionSpec: '18.x'
-    
-    - script: |
-        npm install
-        npm run build
-        npm test
-      displayName: 'Install & Test'
-    
-    - task: Docker@2
-      inputs:
-        containerRegistry: '$(dockerRegistry)'
-        repository: '$(imageName)'
-        command: 'buildAndPush'
-        Dockerfile: 'Dockerfile'
-        tags: |
-          $(tag)
-          latest
-      env:
-        NODE_ENV: production
+steps:
+- task: UsePythonVersion@0
+  inputs:
+    versionSpec: '3.x'
+  displayName: 'Use Python 3.x'
 
-    - task: AzureContainerScan@0
-      inputs:
-        imageName: '$(dockerRegistry)/$(imageName):$(tag)'
-        severityThreshold: 'High'
-
-- stage: Deploy
-  dependsOn: Build
+- script: |
+    pip install trivy
+    trivy image --exit-code 1 --severity HIGH,CRITICAL $(containerRegistry)/$(imageRepository):$(imageTag)
+  displayName: 'Scan User Service image with Trivy'
   condition: succeeded()
-  jobs:
-  - job: DeployToAKS
-    pool:
-      vmImage: 'ubuntu-latest'
-    steps:
-    - task: HelmDeploy@0
-      inputs:
-        connectionType: 'Azure Resource Manager'
-        azureSubscription: '$(azureSubscription)'
-        azureResourceGroup: 'sensipro-rg'
-        kubernetesCluster: 'sensipro-aks'
-        namespace: '$(k8sNamespace)'
-        command: 'upgrade'
-        chartType: 'FilePath'
-        chartPath: 'helm/user-service'
-        releaseName: 'user-service'
-        overrideValues: 'image.repository=$(dockerRegistry)/$(imageName),image.tag=$(tag)'
+
+- task: Docker@2
+  displayName: 'Build and push Docker image'
+  inputs:
+    containerRegistry: '$(dockerRegistryServiceConnection)'
+    repository: '$(imageRepository)'
+    command: 'buildAndPush'
+    Dockerfile: 'Dockerfile'
+    tags: |
+      $(imageTag)
+      latest
+
+- task: Kubernetes@1
+  inputs:
+    connectionType: 'Kubernetes Service Connection'
+    kubernetesServiceEndpoint: '$(kubernetesServiceConnection)'
+    command: 'apply'
+    arguments: '-f k8s/user-service-deployment.yaml -f k8s/user-service-service.yaml'
+    secretType: 'dockerRegistry'
+    containerRegistryType: 'Azure Container Registry'
+    azureSubscriptionEndpoint: '$(dockerRegistryServiceConnection)'
+    azureContainerRegistry: '$(containerRegistry)'

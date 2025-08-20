@@ -2,7 +2,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import morgan from 'morgan';
-import courseRoutes from '.course.Routes.js';
+import courseRoutes from './routes/courses.js'; // Corrigé
 import errorMiddleware from './middlewares/error.middleware.js';
 
 const app = express();
@@ -13,6 +13,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(morgan('dev'));
+
+// Health Check
+app.get('/health', (req, res) => res.status(200).send('OK'));
 
 // Routes
 app.use('/api/v1/courses', courseRoutes);

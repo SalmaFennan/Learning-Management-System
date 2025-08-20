@@ -4,7 +4,7 @@ dotenv.config();
 import app from './src/app.js';
 import connectDB from './src/config/dbConnection.js';
 import cloudinary from 'cloudinary';
-import { initializeRedis } from './utils/cache.js';
+import { initializeRedis } from './src/utils/cache.js';
 
 const PORT = process.env.PORT || 5002;
 

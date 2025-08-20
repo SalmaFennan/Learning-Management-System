@@ -7,13 +7,13 @@ RUN apk add --no-cache tini && \
     chown -R app:app /usr/src/app
 USER app
 COPY package*.json ./
-RUN npm ci --omit=dev  # Install production dependencies
+RUN ls -la  # Vérifie les fichiers présents
+RUN [ -f package-lock.json ] && echo "package-lock.json exists" || echo "package-lock.json missing"
+RUN npm ci --omit=dev
 COPY . .
 ENV NODE_ENV=production
-ENV PORT=5001
-# Add a simple health endpoint to src/app.js
-RUN echo "import express from 'express'; const app = express(); app.get('/health', (req, res) => res.status(200).send('OK')); export default app;" >> src/app.js
+ENV PORT=5003
+ENV NODE_OPTIONS=--es-module-specifier-resolution=node
 HEALTHCHECK --interval=30s --timeout=3s \
-  CMD node -e "require('http').get('http://localhost:5001/health', (r) => {if(r.statusCode !== 200) throw new Error()})"
-ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["/usr/src/app/server.js"]  # Use exec form without "node" to test
+  CMD node -e "require('http').get('http://localhost:5003/health', (r) => {if(r.statusCode !== 200) throw new Error()})"
+CMD ["node", "/usr/src/app/server.js"]
