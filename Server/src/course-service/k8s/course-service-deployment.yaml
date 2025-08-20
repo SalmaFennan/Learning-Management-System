@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: course-service-deployment
-  namespace: default
+  namespace: lms-course
   labels:
     app: course-service
 spec:

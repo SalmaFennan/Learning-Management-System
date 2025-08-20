@@ -2,6 +2,9 @@ apiVersion: v1
 kind: Service
 metadata:
   name: frontend-service
+  namespace: lms-frontend  # Ajouté pour correspondre au namespace
+  labels:
+    app: frontend
 spec:
   ports:
   - port: 80
@@ -9,4 +12,4 @@ spec:
     protocol: TCP
   selector:
     app: frontend
-  type: LoadBalancer  # Ou ClusterIP si derrière un Ingress
+  type: LoadBalancer  # Pour exposer le frontend publiquement
