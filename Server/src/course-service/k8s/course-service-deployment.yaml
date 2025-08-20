@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: course-service
-        image: mylmsregistry.azurecr.io/course-service:latest
+        image: sensiproacr.azurecr.io/course-service:latest
         ports:
         - containerPort: 5002
         env:

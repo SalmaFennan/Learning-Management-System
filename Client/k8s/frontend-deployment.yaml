@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: mylmsregistry.azurecr.io/frontend:latest
+        image: sensiproacr.azurecr.io/frontend:latest
         imagePullPolicy: IfNotPresent  # Ajouté pour gérer les mises à jour
         ports:
         - containerPort: 80

@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: api-gateway
-        image: mylmsregistry.azurecr.io/api-gateway:latest
+        image: sensiproacr.azurecr.io/api-gateway:latest
         ports:
         - containerPort: 3000
         env:

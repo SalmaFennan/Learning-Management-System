@@ -9,7 +9,7 @@ pool:
 variables:
   dockerRegistryServiceConnection: 'sensiProACRConnection'
   kubernetesServiceConnection: 'sensiProAKSConnection'
-  containerRegistry: 'mylmsregistry.azurecr.io'
+  containerRegistry: 'sensiproacr.azurecr.io'
   imageTag: '$(Build.BuildId)'
 
 steps:

@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: payment-service
-        image: mylmsregistry.azurecr.io/payment-service:latest
+        image: sensiproacr.azurecr.io/payment-service:latest
         ports:
         - containerPort: 5004
         env:

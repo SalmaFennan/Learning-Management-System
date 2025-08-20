@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: user-service
-        image: mylmsregistry.azurecr.io/user-service:latest
+        image: sensiproacr.azurecr.io/user-service:latest
         ports:
         - containerPort: 5003
         env:
