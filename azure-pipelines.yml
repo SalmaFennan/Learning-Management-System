@@ -4,7 +4,9 @@ trigger:
       - main
 
 pool:
-  vmImage: 'ubuntu-latest'
+  name: 'Default'
+  demands:
+    - Agent.Name -equals sensipro-agent
 
 variables:
   dockerRegistryServiceConnection: 'sensiProACRConnection'
@@ -15,14 +17,20 @@ variables:
 steps:
 - checkout: self
 
-# 🔑 Login à ACR via service connection
+- task: AzureKeyVault@2
+  inputs:
+    azureSubscription: 'Azure subscription 1 (9724b718-7bc7-48cc-b41b-57dcd3cc158f)'
+    KeyVaultName: 'SensiProLms-keyvault'
+    SecretsFilter: '*'
+    RunAsPreJob: true
+  displayName: 'Fetch secrets from Azure Key Vault'
+
 - task: Docker@2
   displayName: 'Login to ACR'
   inputs:
     command: 'login'
     containerRegistry: '$(dockerRegistryServiceConnection)'
 
-# 🏗 Build et Push des images
 - task: Bash@3
   displayName: 'Build and push all microservices'
   inputs:
@@ -35,39 +43,28 @@ steps:
         docker push $(containerRegistry)/$dir:latest
       done
 
-# 📦 Installer Trivy
 - script: |
-    echo "Installing Trivy..."
-    curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
-  displayName: 'Install Trivy'
-
-# 🔍 Scan des images avec Trivy
-- script: |
+    curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b .
     for dir in api-gateway auth-service user-service payment-service course-service analytics-service Client; do
       echo "Scanning $dir image with Trivy..."
       ./trivy image --exit-code 1 --severity HIGH,CRITICAL $(containerRegistry)/$dir:$(imageTag)
     done
-  displayName: 'Scan all images with Trivy'
+  displayName: 'Install and scan all images with Trivy'
 
-# 🚀 Déploiement AKS
 - task: Kubernetes@1
   displayName: 'Deploy all microservices to AKS'
   inputs:
     connectionType: 'Kubernetes Service Connection'
-    kubernetesServiceConnection: 'sensiProAKSConnection'
-    namespace: 'default'
+    kubernetesServiceConnection: '$(kubernetesServiceConnection)'
     command: 'apply'
-    useConfigurationFile: true
-    configuration: |
-      k8s/api-gateway-deployment.yaml
-      k8s/api-gateway-service.yaml
-      k8s/auth-service-deployment.yaml
-      k8s/auth-service-service.yaml
-      k8s/course-service-deployment.yaml
-      k8s/course-service-service.yaml
-      k8s/payment-service-deployment.yaml
-      k8s/payment-service-service.yaml
-      k8s/user-service-deployment.yaml
-      k8s/user-service-service.yaml
-      k8s/frontend-deployment.yaml
-      k8s/frontend-service.yaml
+    arguments: |
+      -n lms-gateway -f k8s/api-gateway-deployment.yaml -f k8s/api-gateway-service.yaml
+      -n lms-auth -f k8s/auth-service-deployment.yaml -f k8s/auth-service-service.yaml
+      -n lms-course -f k8s/course-service-deployment.yaml -f k8s/course-service-service.yaml
+      -n lms-payment -f k8s/payment-service-deployment.yaml -f k8s/payment-service-service.yaml
+      -n lms-user -f k8s/user-service-deployment.yaml -f k8s/user-service-service.yaml
+      -n lms-frontend -f k8s/frontend-deployment.yaml -f k8s/frontend-service.yaml
+    secretType: 'dockerRegistry'
+    containerRegistryType: 'Azure Container Registry'
+    azureSubscriptionEndpoint: 'sensiPro-AKS-connection'
+    azureContainerRegistry: '$(containerRegistry)'

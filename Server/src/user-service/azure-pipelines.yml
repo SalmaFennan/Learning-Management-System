@@ -4,7 +4,9 @@ trigger:
       - main
 
 pool:
-  vmImage: 'ubuntu-latest'
+  name: 'Default'
+  demands:
+    - Agent.Name -equals sensipro-agent
 
 variables:
   dockerRegistryServiceConnection: 'sensiProACRConnection'
@@ -14,16 +16,20 @@ variables:
   imageTag: '$(Build.BuildId)'
 
 steps:
+- checkout: self
+
+- task: AzureKeyVault@2
+  inputs:
+    azureSubscription: 'Azure subscription 1 (9724b718-7bc7-48cc-b41b-57dcd3cc158f)'
+    KeyVaultName: 'SensiProLms-keyvault'
+    SecretsFilter: '*'
+    RunAsPreJob: true
+  displayName: 'Fetch secrets from Azure Key Vault'
+
 - task: UsePythonVersion@0
   inputs:
     versionSpec: '3.x'
   displayName: 'Use Python 3.x'
-
-- script: |
-    pip install trivy
-    trivy image --exit-code 1 --severity HIGH,CRITICAL $(containerRegistry)/$(imageRepository):$(imageTag)
-  displayName: 'Scan User Service image with Trivy'
-  condition: succeeded()
 
 - task: Docker@2
   displayName: 'Build and push Docker image'
@@ -36,13 +42,19 @@ steps:
       $(imageTag)
       latest
 
+- script: |
+    pip install trivy
+    trivy image --exit-code 1 --severity HIGH,CRITICAL $(containerRegistry)/$(imageRepository):$(imageTag)
+  displayName: 'Scan User Service image with Trivy'
+  condition: succeeded()
+
 - task: Kubernetes@1
   inputs:
     connectionType: 'Kubernetes Service Connection'
-    kubernetesServiceEndpoint: '$(kubernetesServiceConnection)'
+    kubernetesServiceConnection: '$(kubernetesServiceConnection)'
     command: 'apply'
     arguments: '-f k8s/user-service-deployment.yaml -f k8s/user-service-service.yaml'
     secretType: 'dockerRegistry'
     containerRegistryType: 'Azure Container Registry'
-    azureSubscriptionEndpoint: '$(dockerRegistryServiceConnection)'
+    azureSubscriptionEndpoint: 'sensiPro-AKS-connection'
     azureContainerRegistry: '$(containerRegistry)'

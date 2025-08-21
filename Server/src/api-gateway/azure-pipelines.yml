@@ -4,7 +4,9 @@ trigger:
       - main
 
 pool:
-  vmImage: 'ubuntu-latest'
+  name: 'Default'
+  demands:
+    - Agent.Name -equals sensipro-agent
 
 variables:
   dockerRegistryServiceConnection: 'sensiProACRConnection'
@@ -14,6 +16,16 @@ variables:
   imageTag: '$(Build.BuildId)'
 
 steps:
+- checkout: self
+
+- task: AzureKeyVault@2
+  inputs:
+    azureSubscription: 'Azure subscription 1 (9724b718-7bc7-48cc-b41b-57dcd3cc158f)'
+    KeyVaultName: 'SensiProLms-keyvault'
+    SecretsFilter: '*'
+    RunAsPreJob: true
+  displayName: 'Fetch secrets from Azure Key Vault'
+
 - task: Docker@2
   displayName: 'Build and push API Gateway image to ACR'
   inputs:
@@ -26,22 +38,22 @@ steps:
       latest
 
 - script: |
-    docker save -o api-gateway-image.tar $(containerRegistry)/$(imageRepository):$(imageTag)
-    trivy image --exit-code 1 --severity HIGH,CRITICAL $(containerRegistry)/$(imageRepository):$(imageTag)
+    curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b .
+    ./trivy image --exit-code 1 --severity HIGH,CRITICAL $(containerRegistry)/$(imageRepository):$(imageTag)
   displayName: 'Scan API Gateway image with Trivy'
 
 - task: Kubernetes@1
   displayName: 'Deploy API Gateway to AKS'
   inputs:
     kubernetesServiceConnection: '$(kubernetesServiceConnection)'
-    namespace: 'default'
+    namespace: 'lms-gateway'
     command: 'apply'
     arguments: '-f k8s/api-gateway-deployment.yaml -f k8s/api-gateway-service.yaml'
     secretType: 'dockerRegistry'
     containerRegistryType: 'Azure Container Registry'
-    azureSubscriptionEndpoint: '$(dockerRegistryServiceConnection)'
+    azureSubscriptionEndpoint: 'sensiPro-AKS-connection'
     azureContainerRegistry: '$(containerRegistry)'
 
 - script: |
-    echo "Deployment completed. Check AKS pods with: kubectl get pods -n default"
+    echo "Deployment completed. Check AKS pods with: kubectl get pods -n lms-gateway"
   displayName: 'Post-deployment message'

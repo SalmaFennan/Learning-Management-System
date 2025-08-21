@@ -4,7 +4,9 @@ trigger:
       - main
 
 pool:
-  vmImage: 'ubuntu-latest'
+  name: 'Default'
+  demands:
+    - Agent.Name -equals sensipro-agent
 
 variables:
   dockerRegistryServiceConnection: 'sensiProACRConnection'
@@ -15,6 +17,16 @@ variables:
   imagePullSecret: 'acr-secret'
 
 steps:
+- checkout: self
+
+- task: AzureKeyVault@2
+  inputs:
+    azureSubscription: 'Azure subscription 1 (9724b718-7bc7-48cc-b41b-57dcd3cc158f)'
+    KeyVaultName: 'SensiProLms-keyvault'
+    SecretsFilter: '*'
+    RunAsPreJob: true
+  displayName: 'Fetch secrets from Azure Key Vault'
+
 - task: Docker@2
   displayName: 'Build and push Payment Service image'
   inputs:
@@ -27,8 +39,8 @@ steps:
       latest
 
 - script: |
-    docker save -o payment-service-image.tar $(containerRegistry)/$(imageRepository):$(imageTag)
-    trivy image --exit-code 1 --severity HIGH,CRITICAL $(containerRegistry)/$(imageRepository):$(imageTag)
+    curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b .
+    ./trivy image --exit-code 1 --severity HIGH,CRITICAL $(containerRegistry)/$(imageRepository):$(imageTag)
   displayName: 'Scan Payment Service image with Trivy'
 
 - task: KubernetesManifest@1
@@ -44,11 +56,9 @@ steps:
   inputs:
     action: 'deploy'
     kubernetesServiceConnection: '$(kubernetesServiceConnection)'
-    namespace: 'default'
+    namespace: 'lms-payment'
     manifests: |
       k8s/payment-service-deployment.yaml
       k8s/payment-service-service.yaml
-    containers: |
-      $(containerRegistry)/$(imageRepository):$(imageTag)
-    imagePullSecrets: |
-      $(imagePullSecret)
+    containers: '$(containerRegistry)/$(imageRepository):$(imageTag)'
+    imagePullSecrets: '$(imagePullSecret)'

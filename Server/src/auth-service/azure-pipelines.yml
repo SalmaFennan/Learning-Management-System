@@ -1,11 +1,13 @@
 trigger:
-- main
+  branches:
+    include:
+      - main
 
 variables:
   azureSubscription: 'Azure-Sensipro-Prod'
-  dockerRegistry: 'sensiproc.azurecr.io'
+  dockerRegistry: 'sensiproacr.azurecr.io'
   imageName: 'auth-service'
-  k8sNamespace: 'sensipro-prod'
+  k8sNamespace: 'lms-auth'
   tag: '$(Build.BuildId)'
 
 stages:
@@ -13,18 +15,21 @@ stages:
   jobs:
   - job: BuildAndTest
     pool:
-      vmImage: 'ubuntu-latest'
+      name: 'Default'
+      demands:
+        - Agent.Name -equals sensipro-agent
     steps:
     - task: NodeTool@0
       inputs:
         versionSpec: '18.x'
-    
+      displayName: 'Use Node.js 18.x'
+
     - script: |
         cd Server/src/auth-service
         npm install
         echo "Build completed successfully"
       displayName: 'Install Dependencies'
-    
+
     - task: Docker@2
       inputs:
         containerRegistry: '$(azureSubscription)'
@@ -38,8 +43,8 @@ stages:
       displayName: 'Build and Push Docker Image'
 
     - script: |
-        docker save -o auth-service-image.tar $(dockerRegistry)/$(imageName):$(tag)
-        trivy image --exit-code 1 --severity HIGH,CRITICAL $(dockerRegistry)/$(imageName):$(tag)
+        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b .
+        ./trivy image --exit-code 1 --severity HIGH,CRITICAL $(dockerRegistry)/$(imageName):$(tag)
       displayName: 'Scan Auth Service image with Trivy'
 
 - stage: Deploy
@@ -48,7 +53,9 @@ stages:
   jobs:
   - job: DeployToAKS
     pool:
-      vmImage: 'ubuntu-latest'
+      name: 'Default'
+      demands:
+        - Agent.Name -equals sensipro-agent
     steps:
     - task: KubernetesManifest@0
       inputs:
