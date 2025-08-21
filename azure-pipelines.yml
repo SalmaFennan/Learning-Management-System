@@ -68,3 +68,9 @@ steps:
     containerRegistryType: 'Azure Container Registry'
     azureSubscriptionEndpoint: 'sensiPro-AKS-connection'
     azureContainerRegistry: '$(containerRegistry)'
+- task: AzureKeyVault@2
+  inputs:
+    azureSubscription: 'Azure subscription 1 (9724b718-7bc7-48cc-b41b-57dcd3cc158f)'
+    KeyVaultName: 'SensiProLms-keyvault'
+    SecretsFilter: '*'
+    RunAsPreJob: true
