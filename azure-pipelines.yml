@@ -53,19 +53,20 @@ steps:
     containerRegistry: $(containerRegistry)
     imageTag: $(imageTag)
 
-# Scan des images avec Trivy
+# Scan des images avec Trivy (alternative Windows)
 - powershell: |
     $services = @("api-gateway", "auth-service", "user-service", "payment-service", "course-service", "Client")
 
-    # Installer Trivy
+    # Télécharger Trivy directement (version Windows)
     Write-Host "Installing Trivy..."
-    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh" -OutFile "install_trivy.sh"
-    bash install_trivy.sh -b .
+    $trivyUrl = "https://github.com/aquasecurity/trivy/releases/latest/download/trivy_windows-amd64.exe"
+    Invoke-WebRequest -Uri $trivyUrl -OutFile "trivy.exe"
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
     foreach ($dir in $services) {
       $imageTag = "${env:containerRegistry}/${dir}:${env:imageTag}"
       Write-Host "=== Scanning ${dir} image with Trivy ==="
-      ./trivy image --exit-code 1 --severity HIGH,CRITICAL $imageTag
+      .\trivy.exe image --exit-code 1 --severity HIGH,CRITICAL $imageTag
       if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
   displayName: 'Scan all images with Trivy'
