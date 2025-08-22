@@ -15,7 +15,7 @@ variables:
   - name: kubernetesServiceConnection
     value: sensiProAKSConnection
   - name: containerRegistry
-    value: sensiproacr.azurecr.io
+    value: sensiproacr.azurecr.io # Défini explicitement au niveau du pipeline
   - name: imageTag
     value: $(Build.BuildId)
 
@@ -29,41 +29,16 @@ steps:
       command: 'login'
       containerRegistry: '$(dockerRegistryServiceConnection)'
 
-  # Build et push des microservices
-  - powershell: |
-      # Vérification et définition explicite de containerRegistry
-      $containerRegistry = $env:containerRegistry
-      if ([string]::IsNullOrEmpty($containerRegistry)) {
-          Write-Error "❌ La variable containerRegistry est vide ou non définie ! Valeur par défaut : sensiproacr.azurecr.io"
-          $containerRegistry = "sensiproacr.azurecr.io"
-      }
+# Build et push des microservices
+- powershell: |
+    Write-Host "DEBUG - containerRegistry: ${env:containerRegistry}"
+    Write-Host "DEBUG - imageTag: ${env:imageTag}"
 
-      Write-Host "DEBUG - containerRegistry: $containerRegistry"
-      Write-Host "DEBUG - imageTag: ${env:imageTag}"
+    $services = @("api-gateway", "auth-service", "user-service", "payment-service", "course-service", "Client")
 
-      # Dictionnaire microservice => chemin
-      $services = @{
-          "api-gateway"     = "Server/src/api-gateway"
-          "auth-service"    = "Server/src/auth-service"
-          "user-service"    = "Server/src/user-service"
-          "payment-service" = "Server/src/payment-service"
-          "course-service"  = "Server/src/course-service"
-          "client"          = "Client" # Confirmé correct
-      }
-
-      $builtAny = $false
-
-      foreach ($dir in $services.Keys) {
-          $fullPath = $services[$dir]
-
-          if (-Not (Test-Path $fullPath)) {
-              Write-Warning "⚠️ Directory not found: $fullPath. Skipping $dir..."
-              continue
-          }
-
-          $dirLower = $dir.ToLower()
-          $imageTagFull = "$containerRegistry/$dirLower:${env:imageTag}"
-          $imageLatest = "$containerRegistry/$dirLower:latest"
+    foreach ($dir in $services) {
+      $imageTagFull = "${env:containerRegistry}/$dir:${env:imageTag}"
+      $imageLatest = "${env:containerRegistry}/$dir:latest"
 
           Write-Host "DEBUG - Image tag full: $imageTagFull"
           Write-Host "DEBUG - Image tag latest: $imageLatest"
@@ -101,29 +76,25 @@ steps:
       containerRegistry: $(containerRegistry)
       imageTag: $(imageTag)
 
-  # Scan des images avec Trivy
-  - script: |
-      echo "Installing Trivy..."
-      curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b .
-      ./trivy --version
+# Scan des images avec Trivy
+- powershell: |
+    $services = @("api-gateway", "auth-service", "user-service", "payment-service", "course-service", "Client")
 
-      services=("api-gateway" "auth-service" "user-service" "payment-service" "course-service" "client")
-      for dir in "${services[@]}"; do
-        dirLower=$(echo "$dir" | tr '[:upper:]' '[:lower:]')
-        imageTag="${containerRegistry}/${dirLower}:${imageTag}"
-        
-        if docker image inspect "$imageTag" > /dev/null 2>&1; then
-            echo "=== Scanning ${dir} image with Trivy ==="
-            ./trivy image --exit-code 1 --severity HIGH,CRITICAL "$imageTag"
-            if [ $? -ne 0 ]; then exit 1; fi
-        else
-            echo "⚠️ Image not found: $imageTag. Skipping Trivy scan."
-        fi
-      done
-    displayName: 'Scan all images with Trivy'
-    env:
-      containerRegistry: $(containerRegistry)
-      imageTag: $(imageTag)
+    # Installer Trivy
+    Write-Host "Installing Trivy..."
+    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh" -OutFile "install_trivy.sh"
+    bash install_trivy.sh -b .
+
+    foreach ($dir in $services) {
+      $imageTag = "${env:containerRegistry}/$dir:${env:imageTag}"
+      Write-Host "=== Scanning $dir image with Trivy ==="
+      ./trivy image --exit-code 1 --severity HIGH,CRITICAL $imageTag
+      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+  displayName: 'Scan all images with Trivy'
+  env:
+    containerRegistry: $(containerRegistry)
+    imageTag: $(imageTag)
 
   # Déploiement sur AKS
   - task: Kubernetes@1
