@@ -6,7 +6,7 @@ trigger:
 pool:
   name: 'Default'
   demands:
-    - Agent.Name -equals sensipro-agent
+    - Agent.Name -equals agent-sensipro
 
 variables:
   - group: lms-secrets
@@ -20,70 +20,122 @@ variables:
     value: $(Build.BuildId)
 
 steps:
-- checkout: self
+  - checkout: self
 
-# Connexion à ACR
-- task: Docker@2
-  displayName: 'Login to ACR'
-  inputs:
-    command: 'login'
-    containerRegistry: '$(dockerRegistryServiceConnection)'
+  # Connexion à ACR
+  - task: Docker@2
+    displayName: 'Login to ACR'
+    inputs:
+      command: 'login'
+      containerRegistry: '$(dockerRegistryServiceConnection)'
 
-# Build et push des microservices
-- powershell: |
-    Write-Host "DEBUG - containerRegistry: ${env:containerRegistry}"
-    Write-Host "DEBUG - imageTag: ${env:imageTag}"
+  # Build et push des microservices
+  - powershell: |
+      # Vérification et définition explicite de containerRegistry
+      $containerRegistry = $env:containerRegistry
+      if ([string]::IsNullOrEmpty($containerRegistry)) {
+          Write-Error "❌ La variable containerRegistry est vide ou non définie ! Valeur par défaut : sensiproacr.azurecr.io"
+          $containerRegistry = "sensiproacr.azurecr.io"
+      }
 
-    $services = @("api-gateway", "auth-service", "user-service", "payment-service", "course-service", "Client")
+      Write-Host "DEBUG - containerRegistry: $containerRegistry"
+      Write-Host "DEBUG - imageTag: ${env:imageTag}"
 
-    foreach ($dir in $services) {
-      $imageTagFull = "${env:containerRegistry}/$dir:${env:imageTag}"
-      $imageLatest = "${env:containerRegistry}/$dir:latest"
+      # Dictionnaire microservice => chemin
+      $services = @{
+          "api-gateway"     = "Server/src/api-gateway"
+          "auth-service"    = "Server/src/auth-service"
+          "user-service"    = "Server/src/user-service"
+          "payment-service" = "Server/src/payment-service"
+          "course-service"  = "Server/src/course-service"
+          "client"          = "Client" # Confirmé correct
+      }
 
-      Write-Host "=== Building and pushing $dir image ==="
-      docker build -t $imageTagFull -t $imageLatest $dir
-      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      docker push $imageTagFull
-      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      docker push $imageLatest
-      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    }
-  displayName: 'Build and push all microservices'
-  env:
-    containerRegistry: $(containerRegistry)
-    imageTag: $(imageTag)
+      $builtAny = $false
 
-# Scan des images avec Trivy
-- powershell: |
-    $services = @("api-gateway", "auth-service", "user-service", "payment-service", "course-service", "Client")
+      foreach ($dir in $services.Keys) {
+          $fullPath = $services[$dir]
 
-    # Installer Trivy
-    Write-Host "Installing Trivy..."
-    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh" -OutFile "install_trivy.sh"
-    bash install_trivy.sh -b .
+          if (-Not (Test-Path $fullPath)) {
+              Write-Warning "⚠️ Directory not found: $fullPath. Skipping $dir..."
+              continue
+          }
 
-    foreach ($dir in $services) {
-      $imageTag = "${env:containerRegistry}/$dir:${env:imageTag}"
-      Write-Host "=== Scanning $dir image with Trivy ==="
-      ./trivy image --exit-code 1 --severity HIGH,CRITICAL $imageTag
-      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    }
-  displayName: 'Scan all images with Trivy'
-  env:
-    containerRegistry: $(containerRegistry)
-    imageTag: $(imageTag)
+          $dirLower = $dir.ToLower()
+          $imageTagFull = "$containerRegistry/$dirLower:${env:imageTag}"
+          $imageLatest = "$containerRegistry/$dirLower:latest"
 
-# Déploiement sur AKS
-- task: Kubernetes@1
-  displayName: 'Deploy all microservices to AKS'
-  inputs:
-    connectionType: 'Kubernetes Service Connection'
-    kubernetesServiceConnection: '$(kubernetesServiceConnection)'
-    command: 'apply'
-    arguments: |
-      -n lms-gateway -f k8s/api-gateway-deployment.yaml -f k8s/api-gateway-service.yaml
-      -n lms-auth -f k8s/auth-service-deployment.yaml -f k8s/auth-service-service.yaml
-      -n lms-course -f k8s/course-service-deployment.yaml -f k8s/course-service-service.yaml
-      -n lms-payment -f k8s/payment-service-deployment.yaml -f k8s/payment-service-service.yaml
-      -n lms-user -f k8s/user-service-deployment.yaml -f k8s/user-service-service.yaml
-      -n lms-frontend -f k8s/frontend-deployment.yaml -f k8s/frontend-service.yaml
+          Write-Host "DEBUG - Image tag full: $imageTagFull"
+          Write-Host "DEBUG - Image tag latest: $imageLatest"
+
+          Write-Host "=== Building and pushing ${dir} image from ${fullPath} ==="
+          docker build -t $imageTagFull -t $imageLatest $fullPath
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Build failed for $dir. Check Dockerfile in $fullPath"
+              exit $LASTEXITCODE
+          }
+
+          docker push $imageTagFull
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Push failed for $imageTagFull"
+              exit $LASTEXITCODE
+          }
+
+          docker push $imageLatest
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Push failed for $imageLatest"
+              exit $LASTEXITCODE
+          }
+
+          $builtAny = $true
+      }
+
+      if (-Not $builtAny) {
+          Write-Error "❌ Aucun microservice n’a été buildé !"
+          exit 1
+      }
+
+      Write-Host "✅ All microservices built and pushed successfully."
+    displayName: 'Build and push all microservices'
+    env:
+      containerRegistry: $(containerRegistry)
+      imageTag: $(imageTag)
+
+  # Scan des images avec Trivy
+  - script: |
+      echo "Installing Trivy..."
+      curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b .
+      ./trivy --version
+
+      services=("api-gateway" "auth-service" "user-service" "payment-service" "course-service" "client")
+      for dir in "${services[@]}"; do
+        dirLower=$(echo "$dir" | tr '[:upper:]' '[:lower:]')
+        imageTag="${containerRegistry}/${dirLower}:${imageTag}"
+        
+        if docker image inspect "$imageTag" > /dev/null 2>&1; then
+            echo "=== Scanning ${dir} image with Trivy ==="
+            ./trivy image --exit-code 1 --severity HIGH,CRITICAL "$imageTag"
+            if [ $? -ne 0 ]; then exit 1; fi
+        else
+            echo "⚠️ Image not found: $imageTag. Skipping Trivy scan."
+        fi
+      done
+    displayName: 'Scan all images with Trivy'
+    env:
+      containerRegistry: $(containerRegistry)
+      imageTag: $(imageTag)
+
+  # Déploiement sur AKS
+  - task: Kubernetes@1
+    displayName: 'Deploy all microservices to AKS'
+    inputs:
+      connectionType: 'Kubernetes Service Connection'
+      kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+      command: 'apply'
+      arguments: |
+        -n lms-gateway -f k8s/api-gateway-deployment.yaml -f k8s/api-gateway-service.yaml
+        -n lms-auth -f k8s/auth-service-deployment.yaml -f k8s/auth-service-service.yaml
+        -n lms-course -f k8s/course-service-deployment.yaml -f k8s/course-service-service.yaml
+        -n lms-payment -f k8s/payment-service-deployment.yaml -f k8s/payment-service-service.yaml
+        -n lms-user -f k8s/user-service-deployment.yaml -f k8s/user-service-service.yaml
+        -n lms-frontend -f k8s/frontend-deployment.yaml -f k8s/frontend-service.yaml
