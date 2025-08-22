@@ -35,19 +35,32 @@ steps:
       Write-Host "DEBUG - imageTag: $(imageTag)"
 
       $services = @("api-gateway", "auth-service", "user-service", "payment-service", "course-service", "Client")
+      $basePath = "Server/src"
 
       foreach ($dir in $services) {
-        $imageTagFull = "$(containerRegistry)/${dir}:$(imageTag)"
-        $imageLatest = "$(containerRegistry)/${dir}:latest"
+          $fullPath = Join-Path $basePath $dir
 
-        Write-Host "=== Building and pushing ${dir} image ==="
-        docker build -t $imageTagFull -t $imageLatest $dir
-        if ($LASTEXITCODE -ne 0) { Write-Error "Build failed for $dir"; exit $LASTEXITCODE }
-        docker push $imageTagFull
-        if ($LASTEXITCODE -ne 0) { Write-Error "Push failed for $imageTagFull"; exit $LASTEXITCODE }
-        docker push $imageLatest
-        if ($LASTEXITCODE -ne 0) { Write-Error "Push failed for $imageLatest"; exit $LASTEXITCODE }
+          if (-Not (Test-Path $fullPath)) {
+              Write-Error "Directory not found: $fullPath"
+              exit 1
+          }
+
+          $imageTagFull = "$(containerRegistry)/${dir}:$(imageTag)"
+          $imageLatest = "$(containerRegistry)/${dir}:latest"
+
+          Write-Host "=== Building and pushing ${dir} image from ${fullPath} ==="
+
+          docker build -t $imageTagFull -t $imageLatest $fullPath
+          if ($LASTEXITCODE -ne 0) { Write-Error "Build failed for $dir"; exit $LASTEXITCODE }
+
+          docker push $imageTagFull
+          if ($LASTEXITCODE -ne 0) { Write-Error "Push failed for $imageTagFull"; exit $LASTEXITCODE }
+
+          docker push $imageLatest
+          if ($LASTEXITCODE -ne 0) { Write-Error "Push failed for $imageLatest"; exit $LASTEXITCODE }
       }
+
+      Write-Host "✅ All microservices built and pushed successfully."
     displayName: 'Build and push all microservices'
 
   # Scan des images avec Trivy
