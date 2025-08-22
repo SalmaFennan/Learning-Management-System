@@ -14,6 +14,8 @@ variables:
     value: sensiProACRConnection
   - name: kubernetesServiceConnection
     value: sensiProAKSConnection
+  - name: containerRegistry
+    value: sensiproacr.azurecr.io # Défini explicitement au niveau du pipeline
   - name: imageTag
     value: $(Build.BuildId)
 
@@ -29,15 +31,15 @@ steps:
 
   # Build et push des microservices
   - powershell: |
-      # Force containerRegistry
-      $containerRegistry = "sensiproacr.azurecr.io"
+      # Vérification et définition explicite de containerRegistry
+      $containerRegistry = $env:containerRegistry
       if ([string]::IsNullOrEmpty($containerRegistry)) {
-          Write-Error "❌ La variable containerRegistry est vide !"
-          exit 1
+          Write-Error "❌ La variable containerRegistry est vide ou non définie ! Valeur par défaut : sensiproacr.azurecr.io"
+          $containerRegistry = "sensiproacr.azurecr.io"
       }
 
       Write-Host "DEBUG - containerRegistry: $containerRegistry"
-      Write-Host "DEBUG - imageTag: $(imageTag)"
+      Write-Host "DEBUG - imageTag: $env:imageTag"
 
       # Dictionnaire microservice => chemin
       $services = @{
@@ -46,7 +48,7 @@ steps:
           "user-service"    = "Server/src/user-service"
           "payment-service" = "Server/src/payment-service"
           "course-service"  = "Server/src/course-service"
-          "Client"          = "Client"
+          "client"          = "Client" # Normalisé en minuscules
       }
 
       $builtAny = $false
@@ -60,19 +62,30 @@ steps:
           }
 
           $dirLower = $dir.ToLower()
-          $imageTagFull = "$containerRegistry/$dirLower:$(imageTag)"
-          $imageLatest   = "$containerRegistry/$dirLower:latest"
+          $imageTagFull = "$containerRegistry/$dirLower:$env:imageTag"
+          $imageLatest = "$containerRegistry/$dirLower:latest"
+
+          Write-Host "DEBUG - Image tag full: $imageTagFull"
+          Write-Host "DEBUG - Image tag latest: $imageLatest"
 
           Write-Host "=== Building and pushing ${dir} image from ${fullPath} ==="
-
           docker build -t $imageTagFull -t $imageLatest $fullPath
-          if ($LASTEXITCODE -ne 0) { Write-Error "Build failed for $dir"; exit $LASTEXITCODE }
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Build failed for $dir. Check Dockerfile in $fullPath"
+              exit $LASTEXITCODE
+          }
 
           docker push $imageTagFull
-          if ($LASTEXITCODE -ne 0) { Write-Error "Push failed for $imageTagFull"; exit $LASTEXITCODE }
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Push failed for $imageTagFull"
+              exit $LASTEXITCODE
+          }
 
           docker push $imageLatest
-          if ($LASTEXITCODE -ne 0) { Write-Error "Push failed for $imageLatest"; exit $LASTEXITCODE }
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "Push failed for $imageLatest"
+              exit $LASTEXITCODE
+          }
 
           $builtAny = $true
       }
@@ -84,6 +97,9 @@ steps:
 
       Write-Host "✅ All microservices built and pushed successfully."
     displayName: 'Build and push all microservices'
+    env:
+      containerRegistry: $(containerRegistry)
+      imageTag: $(imageTag)
 
   # Scan des images avec Trivy
   - script: |
@@ -91,10 +107,10 @@ steps:
       curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b .
       ./trivy --version
 
-      services=("api-gateway" "auth-service" "user-service" "payment-service" "course-service" "Client")
+      services=("api-gateway" "auth-service" "user-service" "payment-service" "course-service" "client") # Normalisé
       for dir in "${services[@]}"; do
-        dirLower=$(echo $dir | tr '[:upper:]' '[:lower:]')
-        imageTag="$containerRegistry/${dirLower}:$(imageTag)"
+        dirLower=$(echo "$dir" | tr '[:upper:]' '[:lower:]')
+        imageTag="${containerRegistry}/${dirLower}:${imageTag}"
         
         if docker image inspect "$imageTag" > /dev/null 2>&1; then
             echo "=== Scanning ${dir} image with Trivy ==="
@@ -105,6 +121,9 @@ steps:
         fi
       done
     displayName: 'Scan all images with Trivy'
+    env:
+      containerRegistry: $(containerRegistry)
+      imageTag: $(imageTag)
 
   # Déploiement sur AKS
   - task: Kubernetes@1
