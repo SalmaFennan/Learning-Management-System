@@ -9,15 +9,18 @@ pool:
     - Agent.Name -equals sensipro-agent
 
 variables:
-  - group: lms-secrets   # <-- tes secrets de la Library
+  - group: lms-secrets
+
+  # Ajoute celles-ci en dur
   - name: dockerRegistryServiceConnection
-    value: 'sensiProACRConnection'
+    value: sensiProACRConnection
   - name: kubernetesServiceConnection
-    value: 'sensiProAKSConnection'
+    value: sensiProAKSConnection
   - name: containerRegistry
-    value: 'sensiproacr.azurecr.io'
+    value: sensiproacr.azurecr.io
   - name: imageTag
-    value: '$(Build.BuildId)'
+    value: $(Build.BuildId)
+
 
 steps:
 - checkout: self
