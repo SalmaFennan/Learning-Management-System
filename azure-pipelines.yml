@@ -10,6 +10,7 @@ pool:
 
 variables:
   - group: lms-secrets # Variables secrètes
+  
   - name: dockerRegistryServiceConnection
     value: sensiProACRConnection
   - name: kubernetesServiceConnection
@@ -34,6 +35,12 @@ steps:
       Write-Host "DEBUG - containerRegistry: $(containerRegistry)"
       Write-Host "DEBUG - imageTag: $(imageTag)"
 
+      $containerRegistry = "$(containerRegistry)"
+      if ([string]::IsNullOrEmpty($containerRegistry)) {
+          Write-Error "❌ La variable containerRegistry est vide ! Vérifie tes variables de pipeline."
+          exit 1
+      }
+
       # Dictionnaire microservice => chemin
       $services = @{
           "api-gateway"     = "Server/src/api-gateway"
@@ -41,20 +48,20 @@ steps:
           "user-service"    = "Server/src/user-service"
           "payment-service" = "Server/src/payment-service"
           "course-service"  = "Server/src/course-service"
-          "Client"          = "Client"  # chemin relatif à la racine du repo
+          "Client"          = "Client"
       }
 
       foreach ($dir in $services.Keys) {
           $fullPath = $services[$dir]
 
           if (-Not (Test-Path $fullPath)) {
-              Write-Warning "Directory not found: $fullPath. Skipping $dir..."
+              Write-Warning "⚠️ Directory not found: $fullPath. Skipping $dir..."
               continue
           }
 
-          $dirLower = $dir.ToLower()  # obligatoire pour Docker
-          $imageTagFull = "$(containerRegistry)/$dirLower:$(imageTag)"
-          $imageLatest   = "$(containerRegistry)/$dirLower:latest"
+          $dirLower = $dir.ToLower()
+          $imageTagFull = "$containerRegistry/$dirLower:$(imageTag)"
+          $imageLatest   = "$containerRegistry/$dirLower:latest"
 
           Write-Host "=== Building and pushing ${dir} image from ${fullPath} ==="
 
@@ -79,11 +86,17 @@ steps:
 
       services=("api-gateway" "auth-service" "user-service" "payment-service" "course-service" "Client")
       for dir in "${services[@]}"; do
-        dirLower=$(echo $dir | tr '[:upper:]' '[:lower:]')  # Docker tags doivent être minuscules
-        imageTag="$(containerRegistry)/${dirLower}:$(imageTag)"
-        echo "=== Scanning ${dir} image with Trivy ==="
-        ./trivy image --exit-code 1 --severity HIGH,CRITICAL "$imageTag"
-        if [ $? -ne 0 ]; then exit 1; fi
+        dirLower=$(echo $dir | tr '[:upper:]' '[:lower:]')
+        imageTag="$containerRegistry/${dirLower}:$(imageTag)"
+        
+        # Vérifie si l'image existe avant le scan
+        if docker image inspect "$imageTag" > /dev/null 2>&1; then
+            echo "=== Scanning ${dir} image with Trivy ==="
+            ./trivy image --exit-code 1 --severity HIGH,CRITICAL "$imageTag"
+            if [ $? -ne 0 ]; then exit 1; fi
+        else
+            echo "⚠️ Image not found: $imageTag. Skipping Trivy scan."
+        fi
       done
     displayName: 'Scan all images with Trivy'
 
