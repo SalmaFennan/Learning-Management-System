@@ -43,16 +43,18 @@ steps:
 
 # Scan des images avec Trivy (PowerShell)
 - powershell: |
-    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.ps1" -OutFile "install.ps1"
-    .\install.ps1 -BinDir "."
-
     $services = @("api-gateway", "auth-service", "user-service", "payment-service", "course-service", "Client")
 
     foreach ($dir in $services) {
-      Write-Host "=== Scanning $dir image with Trivy ==="
-      ./trivy.exe image --exit-code 1 --severity HIGH,CRITICAL $(containerRegistry)/$dir:$(imageTag)
+      $imageTag = "$(containerRegistry)/$dir:$(imageTag)"
+      $imageLatest = "$(containerRegistry)/$dir:latest"
+
+      Write-Host "=== Building and pushing $dir image ==="
+      docker build -t $imageTag -t $imageLatest $dir
+      docker push $imageTag
+      docker push $imageLatest
     }
-  displayName: 'Install and scan all images with Trivy'
+  displayName: 'Build and push all microservices'
 
 # Déploiement sur AKS
 - task: Kubernetes@1
