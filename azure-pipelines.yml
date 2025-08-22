@@ -9,15 +9,10 @@ pool:
     - Agent.Name -equals sensipro-agent
 
 variables:
-  - group: lms-secrets
-  - name: dockerRegistryServiceConnection
-    value: sensiProACRConnection
-  - name: kubernetesServiceConnection
-    value: sensiProAKSConnection
-  - name: containerRegistry
-    value: sensiproacr.azurecr.io
-  - name: imageTag
-    value: $(Build.BuildId)
+  dockerRegistryServiceConnection: 'sensiProACRConnection'
+  kubernetesServiceConnection: 'sensiProAKSConnection'
+  containerRegistry: 'sensiproacr.azurecr.io'
+  imageTag: '$(Build.BuildId)'
 
 steps:
 - checkout: self
@@ -29,51 +24,26 @@ steps:
     command: 'login'
     containerRegistry: '$(dockerRegistryServiceConnection)'
 
-# Build et push des microservices
-- powershell: |
-    Write-Host "DEBUG - containerRegistry: $($env:containerRegistry)"
-    Write-Host "DEBUG - imageTag: $($env:imageTag)"
-
-    $services = @("api-gateway", "auth-service", "user-service", "payment-service", "course-service", "Client")
-
-    foreach ($dir in $services) {
-      $imageTagFull = "$($env:containerRegistry)/$dir:$($env:imageTag)"
-      $imageLatest = "$($env:containerRegistry)/$dir:latest"
-
-      Write-Host "=== Building and pushing $dir image ==="
-      docker build -t $imageTagFull -t $imageLatest $dir
-      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      docker push $imageTagFull
-      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      docker push $imageLatest
-      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    }
+- task: Bash@3
   displayName: 'Build and push all microservices'
-  env:
-    containerRegistry: $(containerRegistry)
-    imageTag: $(imageTag)
+  inputs:
+    targetType: 'inline'
+    script: |
+      for dir in api-gateway auth-service user-service payment-service course-service analytics-service Client; do
+        echo "Building and pushing $dir image..."
+        docker build -t $(containerRegistry)/$dir:$(imageTag) -t $(containerRegistry)/$dir:latest $dir
+        docker push $(containerRegistry)/$dir:$(imageTag)
+        docker push $(containerRegistry)/$dir:latest
+      done
 
-# Scan des images avec Trivy
-- powershell: |
-    $services = @("api-gateway", "auth-service", "user-service", "payment-service", "course-service", "Client")
+- script: |
+    curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b .
+    for dir in api-gateway auth-service user-service payment-service course-service analytics-service Client; do
+      echo "Scanning $dir image with Trivy..."
+      ./trivy image --exit-code 1 --severity HIGH,CRITICAL $(containerRegistry)/$dir:$(imageTag)
+    done
+  displayName: 'Install and scan all images with Trivy'
 
-    # Installer Trivy
-    Write-Host "Installing Trivy..."
-    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh" -OutFile "install_trivy.sh"
-    bash install_trivy.sh -b .
-
-    foreach ($dir in $services) {
-      $imageTag = "$($env:containerRegistry)/$dir:$($env:imageTag)"
-      Write-Host "=== Scanning $dir image with Trivy ==="
-      ./trivy image --exit-code 1 --severity HIGH,CRITICAL $imageTag
-      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    }
-  displayName: 'Scan all images with Trivy'
-  env:
-    containerRegistry: $(containerRegistry)
-    imageTag: $(imageTag)
-
-# Déploiement sur AKS
 - task: Kubernetes@1
   displayName: 'Deploy all microservices to AKS'
   inputs:
@@ -87,3 +57,7 @@ steps:
       -n lms-payment -f k8s/payment-service-deployment.yaml -f k8s/payment-service-service.yaml
       -n lms-user -f k8s/user-service-deployment.yaml -f k8s/user-service-service.yaml
       -n lms-frontend -f k8s/frontend-deployment.yaml -f k8s/frontend-service.yaml
+    secretType: 'dockerRegistry'
+    containerRegistryType: 'Azure Container Registry'
+    azureSubscriptionEndpoint: 'sensiPro-AKS-connection'
+    azureContainerRegistry: '$(containerRegistry)'
