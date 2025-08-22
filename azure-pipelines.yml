@@ -34,15 +34,22 @@ steps:
       Write-Host "DEBUG - containerRegistry: $(containerRegistry)"
       Write-Host "DEBUG - imageTag: $(imageTag)"
 
-      $services = @("api-gateway", "auth-service", "user-service", "payment-service", "course-service", "Client")
-      $basePath = "Server/src"
+      # Dictionnaire microservice => chemin
+      $services = @{
+          "api-gateway"   = "Server/src/api-gateway"
+          "auth-service"  = "Server/src/auth-service"
+          "user-service"  = "Server/src/user-service"
+          "payment-service" = "Server/src/payment-service"
+          "course-service" = "Server/src/course-service"
+          "Client"        = "Client"  # chemin relatif à la racine du repo
+      }
 
-      foreach ($dir in $services) {
-          $fullPath = Join-Path $basePath $dir
+      foreach ($dir in $services.Keys) {
+          $fullPath = $services[$dir]
 
           if (-Not (Test-Path $fullPath)) {
-              Write-Error "Directory not found: $fullPath"
-              exit 1
+              Write-Warning "Directory not found: $fullPath. Skipping $dir..."
+              continue
           }
 
           $imageTagFull = "$(containerRegistry)/${dir}:$(imageTag)"
