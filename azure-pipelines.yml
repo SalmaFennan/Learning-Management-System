@@ -36,102 +36,109 @@ stages:
         containerRegistry: '$(dockerRegistryServiceConnection)'
 
     # Build et push des microservices
-    - powershell: |
-        # Vérification et définition explicite des variables
-        $containerRegistry = $env:containerRegistry
-        $imageTag = $env:imageTag
-        
-        if ([string]::IsNullOrEmpty($containerRegistry)) {
-            Write-Error "❌ La variable containerRegistry est vide ou non définie !"
-            exit 1
-        }
-        
-        if ([string]::IsNullOrEmpty($imageTag)) {
-            Write-Error "❌ La variable imageTag est vide ou non définie !"
-            exit 1
-        }
-
-        Write-Host "DEBUG - containerRegistry: $containerRegistry"
-        Write-Host "DEBUG - imageTag: $imageTag"
-
-        # Dictionnaire microservice => chemin
-        $services = @{
-            "api-gateway"     = "Server/src/api-gateway"
-            "auth-service"    = "Server/src/auth-service"
-            "user-service"    = "Server/src/user-service"
-            "payment-service" = "Server/src/payment-service"
-            "course-service"  = "Server/src/course-service"
-            "client"          = "Client"
-        }
-
-        $builtAny = $false
-
-        foreach ($dir in $services.Keys) {
-            $fullPath = $services[$dir]
-
-            if (-Not (Test-Path $fullPath)) {
-                Write-Warning "⚠️ Directory not found: $fullPath. Skipping $dir..."
-                continue
-            }
-
-            $dirLower = $dir.ToLower()
-            $imageTagFull = "$containerRegistry/$dirLower`:$imageTag"
-            $imageLatest = "$containerRegistry/$dirLower`:latest"
-
-            Write-Host "=== Building and pushing ${dir} image from ${fullPath} ==="
-            
-            # Build de l'image
-            docker build -t $imageTagFull -t $imageLatest $fullPath
-            if ($LASTEXITCODE -ne 0) {
-                Write-Error "❌ Build failed for $dir. Check Dockerfile in $fullPath"
-                exit $LASTEXITCODE
-            }
-
-            # Push des images
-            Write-Host "Pushing $imageTagFull..."
-            docker push $imageTagFull
-            if ($LASTEXITCODE -ne 0) {
-                Write-Error "❌ Push failed for $imageTagFull"
-                exit $LASTEXITCODE
-            }
-
-            Write-Host "Pushing $imageLatest..."
-            docker push $imageLatest
-            if ($LASTEXITCODE -ne 0) {
-                Write-Error "❌ Push failed for $imageLatest"
-                exit $LASTEXITCODE
-            }
-
-            Write-Host "✅ Successfully built and pushed $dir"
-            $builtAny = $true
-        }
-
-        if (-Not $builtAny) {
-            Write-Error "❌ Aucun microservice n'a été buildé !"
-            exit 1
-        }
-
-        Write-Host "🎉 All microservices built and pushed successfully!"
+    - task: PowerShell@2
       displayName: 'Build and push all microservices'
+      inputs:
+        targetType: 'inline'
+        script: |
+          # Vérification et définition explicite des variables
+          $containerRegistry = $env:containerRegistry
+          $imageTag = $env:imageTag
+          
+          if ([string]::IsNullOrEmpty($containerRegistry)) {
+              Write-Error "❌ La variable containerRegistry est vide ou non définie !"
+              exit 1
+          }
+          
+          if ([string]::IsNullOrEmpty($imageTag)) {
+              Write-Error "❌ La variable imageTag est vide ou non définie !"
+              exit 1
+          }
+
+          Write-Host "DEBUG - containerRegistry: $containerRegistry"
+          Write-Host "DEBUG - imageTag: $imageTag"
+
+          # Dictionnaire microservice => chemin
+          $services = @{
+              "api-gateway"     = "Server/src/api-gateway"
+              "auth-service"    = "Server/src/auth-service"
+              "user-service"    = "Server/src/user-service"
+              "payment-service" = "Server/src/payment-service"
+              "course-service"  = "Server/src/course-service"
+              "client"          = "Client"
+          }
+
+          $builtAny = $false
+
+          foreach ($dir in $services.Keys) {
+              $fullPath = $services[$dir]
+
+              if (-Not (Test-Path $fullPath)) {
+                  Write-Warning "⚠️ Directory not found: $fullPath. Skipping $dir..."
+                  continue
+              }
+
+              $dirLower = $dir.ToLower()
+              $imageTagFull = "$containerRegistry/$dirLower`:$imageTag"
+              $imageLatest = "$containerRegistry/$dirLower`:latest"
+
+              Write-Host "=== Building and pushing ${dir} image from ${fullPath} ==="
+              
+              # Build de l'image avec logs détaillés
+              Write-Host "Executing: docker build -t $imageTagFull -t $imageLatest $fullPath"
+              docker build -t $imageTagFull -t $imageLatest $fullPath 2>&1 | ForEach-Object { Write-Host $_ }
+              if ($LASTEXITCODE -ne 0) {
+                  Write-Error "❌ Build failed for $dir. Check Dockerfile and logs above in $fullPath"
+                  exit $LASTEXITCODE
+              }
+
+              # Push des images
+              Write-Host "Pushing $imageTagFull..."
+              docker push $imageTagFull
+              if ($LASTEXITCODE -ne 0) {
+                  Write-Error "❌ Push failed for $imageTagFull"
+                  exit $LASTEXITCODE
+              }
+
+              Write-Host "Pushing $imageLatest..."
+              docker push $imageLatest
+              if ($LASTEXITCODE -ne 0) {
+                  Write-Error "❌ Push failed for $imageLatest"
+                  exit $LASTEXITCODE
+              }
+
+              Write-Host "✅ Successfully built and pushed $dir"
+              $builtAny = $true
+          }
+
+          if (-Not $builtAny) {
+              Write-Error "❌ Aucun microservice n'a été buildé !"
+              exit 1
+          }
+
+          Write-Host "🎉 All microservices built and pushed successfully!"
       env:
         containerRegistry: $(containerRegistry)
         imageTag: $(imageTag)
 
     # Scan des images avec Trivy (optionnel - vous pouvez commenter cette section)
-    - script: |
-        echo "Installing Trivy..."
-        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b .
-        ./trivy --version
-
-        services=("api-gateway" "auth-service" "user-service" "payment-service" "course-service" "client")
-        for dir in "${services[@]}"; do
-          dirLower=$(echo "$dir" | tr '[:upper:]' '[:lower:]')
-          imageTag="${containerRegistry}/${dirLower}:${imageTag}"
-          
-          echo "=== Scanning ${dir} image with Trivy ==="
-          ./trivy image --exit-code 0 --severity HIGH,CRITICAL "$imageTag" || true
-        done
+    - task: Bash@3
       displayName: 'Security scan with Trivy'
+      inputs:
+        targetType: 'inline'
+        script: |
+          echo "Installing Trivy..."
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b .
+          ./trivy --version
+
+          services=("api-gateway" "auth-service" "user-service" "payment-service" "course-service" "client")
+          for dir in "${services[@]}"; do
+            dirLower=$(echo "$dir" | tr '[:upper:]' '[:lower:]')
+            imageTag="${containerRegistry}/${dirLower}:${imageTag}"
+            
+            echo "=== Scanning ${dir} image with Trivy ==="
+            ./trivy image --exit-code 0 --severity HIGH,CRITICAL "$imageTag" || true
+          done
       env:
         containerRegistry: $(containerRegistry)
         imageTag: $(imageTag)
