@@ -4,11 +4,10 @@ trigger:
       - main
 
 pool:
-  vmImage: 'ubuntu-latest' # Agent hébergé Azure, mis à jour pour 2025
+  vmImage: 'ubuntu-latest' # Agent hébergé Azure
 
 variables:
-  - group: lms-secrets # Variables secrètes (ex. : credentials)
-  
+  - group: lms-secrets # Variables secrètes
   - name: dockerRegistryServiceConnection
     value: sensiProACRConnection
   - name: kubernetesServiceConnection
@@ -48,11 +47,8 @@ steps:
         if ($LASTEXITCODE -ne 0) { Write-Error "Push failed for $imageLatest"; exit $LASTEXITCODE }
       }
     displayName: 'Build and push all microservices'
-    env:
-      containerRegistry: $(containerRegistry)
-      imageTag: $(imageTag)
 
-  # Scan des images avec Trivy (adapté pour Ubuntu)
+  # Scan des images avec Trivy
   - script: |
       echo "Installing Trivy..."
       curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b .
@@ -66,9 +62,6 @@ steps:
         if [ $? -ne 0 ]; then exit 1; fi
       done
     displayName: 'Scan all images with Trivy'
-    env:
-      containerRegistry: $(containerRegistry)
-      imageTag: $(imageTag)
 
   # Déploiement sur AKS
   - task: Kubernetes@1
