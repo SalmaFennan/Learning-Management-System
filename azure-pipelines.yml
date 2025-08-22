@@ -29,26 +29,29 @@ steps:
     command: 'login'
     containerRegistry: '$(dockerRegistryServiceConnection)'
 
-# Build & push des microservices
-- task: Bash@3
-  displayName: 'Build and push all microservices'
-  inputs:
-    targetType: 'inline'
-    script: |
-      for dir in api-gateway auth-service user-service payment-service course-service Client; do
-        echo "Building and pushing $dir image..."
-        docker build -t $(containerRegistry)/$dir:$(imageTag) -t $(containerRegistry)/$dir:latest $dir
-        docker push $(containerRegistry)/$dir:$(imageTag)
-        docker push $(containerRegistry)/$dir:latest
-      done
+# Build & push des microservices (PowerShell au lieu de Bash)
+- powershell: |
+    $services = @("api-gateway", "auth-service", "user-service", "payment-service", "course-service", "Client")
 
-# Scan des images avec Trivy
-- script: |
-    curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b .
-    for dir in api-gateway auth-service user-service payment-service course-service Client; do
-      echo "Scanning $dir image with Trivy..."
-      ./trivy image --exit-code 1 --severity HIGH,CRITICAL $(containerRegistry)/$dir:$(imageTag)
-    done
+    foreach ($dir in $services) {
+      Write-Host "=== Building and pushing $dir image ==="
+      docker build -t $(containerRegistry)/$dir:$(imageTag) -t $(containerRegistry)/$dir:latest $dir
+      docker push $(containerRegistry)/$dir:$(imageTag)
+      docker push $(containerRegistry)/$dir:latest
+    }
+  displayName: 'Build and push all microservices'
+
+# Scan des images avec Trivy (PowerShell)
+- powershell: |
+    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.ps1" -OutFile "install.ps1"
+    .\install.ps1 -BinDir "."
+
+    $services = @("api-gateway", "auth-service", "user-service", "payment-service", "course-service", "Client")
+
+    foreach ($dir in $services) {
+      Write-Host "=== Scanning $dir image with Trivy ==="
+      ./trivy.exe image --exit-code 1 --severity HIGH,CRITICAL $(containerRegistry)/$dir:$(imageTag)
+    }
   displayName: 'Install and scan all images with Trivy'
 
 # Déploiement sur AKS
