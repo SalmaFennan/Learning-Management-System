@@ -31,15 +31,22 @@ steps:
 
 # Build & push des microservices (PowerShell au lieu de Bash)
 - powershell: |
+    Write-Host "DEBUG - containerRegistry: $(containerRegistry)"
+    Write-Host "DEBUG - imageTag: $(imageTag)"
+
     $services = @("api-gateway", "auth-service", "user-service", "payment-service", "course-service", "Client")
 
     foreach ($dir in $services) {
+      $imageTagFull = "$(containerRegistry)/$dir:$(imageTag)"
+      $imageLatest = "$(containerRegistry)/$dir:latest"
+
       Write-Host "=== Building and pushing $dir image ==="
-      docker build -t $(containerRegistry)/$dir:$(imageTag) -t $(containerRegistry)/$dir:latest $dir
-      docker push $(containerRegistry)/$dir:$(imageTag)
-      docker push $(containerRegistry)/$dir:latest
+      docker build -t $imageTagFull -t $imageLatest $dir
+      docker push $imageTagFull
+      docker push $imageLatest
     }
   displayName: 'Build and push all microservices'
+
 
 # Scan des images avec Trivy (PowerShell)
 - powershell: |
