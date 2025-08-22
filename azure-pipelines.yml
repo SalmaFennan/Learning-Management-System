@@ -14,8 +14,6 @@ variables:
     value: sensiProACRConnection
   - name: kubernetesServiceConnection
     value: sensiProAKSConnection
-  - name: containerRegistry
-    value: sensiproacr.azurecr.io
   - name: imageTag
     value: $(Build.BuildId)
 
@@ -31,9 +29,10 @@ steps:
 
   # Build et push des microservices
   - powershell: |
-      $containerRegistry = "$(containerRegistry)"
+      # Force containerRegistry
+      $containerRegistry = "sensiproacr.azurecr.io"
       if ([string]::IsNullOrEmpty($containerRegistry)) {
-          Write-Error "❌ La variable containerRegistry est vide ! Vérifie tes variables de pipeline."
+          Write-Error "❌ La variable containerRegistry est vide !"
           exit 1
       }
 
@@ -49,6 +48,8 @@ steps:
           "course-service"  = "Server/src/course-service"
           "Client"          = "Client"
       }
+
+      $builtAny = $false
 
       foreach ($dir in $services.Keys) {
           $fullPath = $services[$dir]
@@ -72,6 +73,13 @@ steps:
 
           docker push $imageLatest
           if ($LASTEXITCODE -ne 0) { Write-Error "Push failed for $imageLatest"; exit $LASTEXITCODE }
+
+          $builtAny = $true
+      }
+
+      if (-Not $builtAny) {
+          Write-Error "❌ Aucun microservice n’a été buildé !"
+          exit 1
       }
 
       Write-Host "✅ All microservices built and pushed successfully."
