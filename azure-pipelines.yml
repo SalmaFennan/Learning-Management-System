@@ -33,13 +33,20 @@ steps:
   - powershell: |
       # Vérification et définition explicite de containerRegistry
       $containerRegistry = $env:containerRegistry
+      $imageTag = $env:imageTag
+      
       if ([string]::IsNullOrEmpty($containerRegistry)) {
           Write-Error "❌ La variable containerRegistry est vide ou non définie ! Valeur par défaut : sensiproacr.azurecr.io"
           $containerRegistry = "sensiproacr.azurecr.io"
       }
+      
+      if ([string]::IsNullOrEmpty($imageTag)) {
+          Write-Error "❌ La variable imageTag est vide ou non définie !"
+          exit 1
+      }
 
       Write-Host "DEBUG - containerRegistry: $containerRegistry"
-      Write-Host "DEBUG - imageTag: ${env:imageTag}"
+      Write-Host "DEBUG - imageTag: $imageTag"
 
       # Dictionnaire microservice => chemin
       $services = @{
@@ -48,7 +55,7 @@ steps:
           "user-service"    = "Server/src/user-service"
           "payment-service" = "Server/src/payment-service"
           "course-service"  = "Server/src/course-service"
-          "client"          = "Client" # Confirmé correct
+          "client"          = "Client"
       }
 
       $builtAny = $false
@@ -62,8 +69,8 @@ steps:
           }
 
           $dirLower = $dir.ToLower()
-          $imageTagFull = "$containerRegistry/$dirLower:${env:imageTag}"
-          $imageLatest = "$containerRegistry/$dirLower:latest"
+          $imageTagFull = "$containerRegistry/$dirLower`:$imageTag"
+          $imageLatest = "$containerRegistry/$dirLower`:latest"
 
           Write-Host "DEBUG - Image tag full: $imageTagFull"
           Write-Host "DEBUG - Image tag latest: $imageLatest"
@@ -91,7 +98,7 @@ steps:
       }
 
       if (-Not $builtAny) {
-          Write-Error "❌ Aucun microservice n’a été buildé !"
+          Write-Error "❌ Aucun microservice n'a été buildé !"
           exit 1
       }
 
