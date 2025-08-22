@@ -31,14 +31,14 @@ steps:
 
 # Build et push des microservices
 - powershell: |
-    Write-Host "DEBUG - containerRegistry: $($env:containerRegistry)"
-    Write-Host "DEBUG - imageTag: $($env:imageTag)"
+    Write-Host "DEBUG - containerRegistry: ${env:containerRegistry}"
+    Write-Host "DEBUG - imageTag: ${env:imageTag}"
 
     $services = @("api-gateway", "auth-service", "user-service", "payment-service", "course-service", "Client")
 
     foreach ($dir in $services) {
-      $imageTagFull = "$($env:containerRegistry)/$dir:$($env:imageTag)"
-      $imageLatest = "$($env:containerRegistry)/$dir:latest"
+      $imageTagFull = "${env:containerRegistry}/$dir:${env:imageTag}"
+      $imageLatest = "${env:containerRegistry}/$dir:latest"
 
       Write-Host "=== Building and pushing $dir image ==="
       docker build -t $imageTagFull -t $imageLatest $dir
@@ -63,7 +63,7 @@ steps:
     bash install_trivy.sh -b .
 
     foreach ($dir in $services) {
-      $imageTag = "$($env:containerRegistry)/$dir:$($env:imageTag)"
+      $imageTag = "${env:containerRegistry}/$dir:${env:imageTag}"
       Write-Host "=== Scanning $dir image with Trivy ==="
       ./trivy image --exit-code 1 --severity HIGH,CRITICAL $imageTag
       if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
