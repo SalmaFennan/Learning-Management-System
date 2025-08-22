@@ -35,34 +35,27 @@ stages:
         command: 'login'
         containerRegistry: '$(dockerRegistryServiceConnection)'
 
-    # Build et push des microservices
-    - powershell: |
-        # Vérification et définition explicite des variables
-        $containerRegistry = $env:containerRegistry
-        $imageTag = $env:imageTag
-        
-        if ([string]::IsNullOrEmpty($containerRegistry)) {
-            Write-Error "❌ La variable containerRegistry est vide ou non définie !"
-            exit 1
-        }
-        
-        if ([string]::IsNullOrEmpty($imageTag)) {
-            Write-Error "❌ La variable imageTag est vide ou non définie !"
-            exit 1
-        }
+  # Build et push des microservices
+  - powershell: |
+      # Vérification et définition explicite de containerRegistry
+      $containerRegistry = $env:containerRegistry
+      if ([string]::IsNullOrEmpty($containerRegistry)) {
+          Write-Error "❌ La variable containerRegistry est vide ou non définie ! Valeur par défaut : sensiproacr.azurecr.io"
+          $containerRegistry = "sensiproacr.azurecr.io"
+      }
 
-        Write-Host "DEBUG - containerRegistry: $containerRegistry"
-        Write-Host "DEBUG - imageTag: $imageTag"
+      Write-Host "DEBUG - containerRegistry: $containerRegistry"
+      Write-Host "DEBUG - imageTag: ${env:imageTag}"
 
-        # Dictionnaire microservice => chemin
-        $services = @{
-            "api-gateway"     = "Server/src/api-gateway"
-            "auth-service"    = "Server/src/auth-service"
-            "user-service"    = "Server/src/user-service"
-            "payment-service" = "Server/src/payment-service"
-            "course-service"  = "Server/src/course-service"
-            "client"          = "Client"
-        }
+      # Dictionnaire microservice => chemin
+      $services = @{
+          "api-gateway"     = "Server/src/api-gateway"
+          "auth-service"    = "Server/src/auth-service"
+          "user-service"    = "Server/src/user-service"
+          "payment-service" = "Server/src/payment-service"
+          "course-service"  = "Server/src/course-service"
+          "client"          = "Client" # Confirmé correct
+      }
 
         $builtAny = $false
 
@@ -74,9 +67,12 @@ stages:
                 continue
             }
 
-            $dirLower = $dir.ToLower()
-            $imageTagFull = "$containerRegistry/$dirLower`:$imageTag"
-            $imageLatest = "$containerRegistry/$dirLower`:latest"
+          $dirLower = $dir.ToLower()
+          $imageTagFull = "$containerRegistry/$dirLower:${env:imageTag}"
+          $imageLatest = "$containerRegistry/$dirLower:latest"
+
+          Write-Host "DEBUG - Image tag full: $imageTagFull"
+          Write-Host "DEBUG - Image tag latest: $imageLatest"
 
             Write-Host "=== Building and pushing ${dir} image from ${fullPath} ==="
             
@@ -106,10 +102,10 @@ stages:
             $builtAny = $true
         }
 
-        if (-Not $builtAny) {
-            Write-Error "❌ Aucun microservice n'a été buildé !"
-            exit 1
-        }
+      if (-Not $builtAny) {
+          Write-Error "❌ Aucun microservice n’a été buildé !"
+          exit 1
+      }
 
         Write-Host "🎉 All microservices built and pushed successfully!"
       displayName: 'Build and push all microservices'
