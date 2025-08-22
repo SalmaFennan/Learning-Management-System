@@ -4,12 +4,11 @@ trigger:
       - main
 
 pool:
-  name: 'Default'
-  demands:
-    - Agent.Name -equals sensipro-agent
+  vmImage: 'ubuntu-latest' # Agent hébergé Azure, mis à jour pour 2025
 
 variables:
-  - group: lms-secrets
+  - group: lms-secrets # Variables secrètes (ex. : credentials)
+  
   - name: dockerRegistryServiceConnection
     value: sensiProACRConnection
   - name: kubernetesServiceConnection
@@ -20,71 +19,68 @@ variables:
     value: $(Build.BuildId)
 
 steps:
-- checkout: self
+  - checkout: self
 
-# Connexion à ACR
-- task: Docker@2
-  displayName: 'Login to ACR'
-  inputs:
-    command: 'login'
-    containerRegistry: '$(dockerRegistryServiceConnection)'
+  # Connexion à ACR
+  - task: Docker@2
+    displayName: 'Login to ACR'
+    inputs:
+      command: 'login'
+      containerRegistry: '$(dockerRegistryServiceConnection)'
 
-# Build et push des microservices
-- powershell: |
-    Write-Host "DEBUG - containerRegistry: ${env:containerRegistry}"
-    Write-Host "DEBUG - imageTag: ${env:imageTag}"
+  # Build et push des microservices
+  - powershell: |
+      Write-Host "DEBUG - containerRegistry: $(containerRegistry)"
+      Write-Host "DEBUG - imageTag: $(imageTag)"
 
-    $services = @("api-gateway", "auth-service", "user-service", "payment-service", "course-service", "Client")
+      $services = @("api-gateway", "auth-service", "user-service", "payment-service", "course-service", "Client")
 
-    foreach ($dir in $services) {
-      $imageTagFull = "${env:containerRegistry}/${dir}:${env:imageTag}"
-      $imageLatest = "${env:containerRegistry}/${dir}:latest"
+      foreach ($dir in $services) {
+        $imageTagFull = "$(containerRegistry)/${dir}:$(imageTag)"
+        $imageLatest = "$(containerRegistry)/${dir}:latest"
 
-      Write-Host "=== Building and pushing ${dir} image ==="
-      docker build -t $imageTagFull -t $imageLatest $dir
-      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      docker push $imageTagFull
-      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      docker push $imageLatest
-      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    }
-  displayName: 'Build and push all microservices'
-  env:
-    containerRegistry: $(containerRegistry)
-    imageTag: $(imageTag)
+        Write-Host "=== Building and pushing ${dir} image ==="
+        docker build -t $imageTagFull -t $imageLatest $dir
+        if ($LASTEXITCODE -ne 0) { Write-Error "Build failed for $dir"; exit $LASTEXITCODE }
+        docker push $imageTagFull
+        if ($LASTEXITCODE -ne 0) { Write-Error "Push failed for $imageTagFull"; exit $LASTEXITCODE }
+        docker push $imageLatest
+        if ($LASTEXITCODE -ne 0) { Write-Error "Push failed for $imageLatest"; exit $LASTEXITCODE }
+      }
+    displayName: 'Build and push all microservices'
+    env:
+      containerRegistry: $(containerRegistry)
+      imageTag: $(imageTag)
 
-# Scan des images avec Trivy (alternative Windows)
-- powershell: |
-    $services = @("api-gateway", "auth-service", "user-service", "payment-service", "course-service", "Client")
+  # Scan des images avec Trivy (adapté pour Ubuntu)
+  - script: |
+      echo "Installing Trivy..."
+      curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b .
+      ./trivy --version
 
-    # Télécharger Trivy directement (version Windows)
-    Write-Host "Installing Trivy..."
-    $trivyUrl = "https://github.com/aquasecurity/trivy/releases/latest/download/trivy_windows-amd64.exe"
-    Invoke-WebRequest -Uri $trivyUrl -OutFile "trivy.exe"
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      services=("api-gateway" "auth-service" "user-service" "payment-service" "course-service" "Client")
+      for dir in "${services[@]}"; do
+        imageTag="$(containerRegistry)/${dir}:$(imageTag)"
+        echo "=== Scanning ${dir} image with Trivy ==="
+        ./trivy image --exit-code 1 --severity HIGH,CRITICAL "$imageTag"
+        if [ $? -ne 0 ]; then exit 1; fi
+      done
+    displayName: 'Scan all images with Trivy'
+    env:
+      containerRegistry: $(containerRegistry)
+      imageTag: $(imageTag)
 
-    foreach ($dir in $services) {
-      $imageTag = "${env:containerRegistry}/${dir}:${env:imageTag}"
-      Write-Host "=== Scanning ${dir} image with Trivy ==="
-      .\trivy.exe image --exit-code 1 --severity HIGH,CRITICAL $imageTag
-      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    }
-  displayName: 'Scan all images with Trivy'
-  env:
-    containerRegistry: $(containerRegistry)
-    imageTag: $(imageTag)
-
-# Déploiement sur AKS
-- task: Kubernetes@1
-  displayName: 'Deploy all microservices to AKS'
-  inputs:
-    connectionType: 'Kubernetes Service Connection'
-    kubernetesServiceConnection: '$(kubernetesServiceConnection)'
-    command: 'apply'
-    arguments: |
-      -n lms-gateway -f k8s/api-gateway-deployment.yaml -f k8s/api-gateway-service.yaml
-      -n lms-auth -f k8s/auth-service-deployment.yaml -f k8s/auth-service-service.yaml
-      -n lms-course -f k8s/course-service-deployment.yaml -f k8s/course-service-service.yaml
-      -n lms-payment -f k8s/payment-service-deployment.yaml -f k8s/payment-service-service.yaml
-      -n lms-user -f k8s/user-service-deployment.yaml -f k8s/user-service-service.yaml
-      -n lms-frontend -f k8s/frontend-deployment.yaml -f k8s/frontend-service.yaml
+  # Déploiement sur AKS
+  - task: Kubernetes@1
+    displayName: 'Deploy all microservices to AKS'
+    inputs:
+      connectionType: 'Kubernetes Service Connection'
+      kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+      command: 'apply'
+      arguments: |
+        -n lms-gateway -f k8s/api-gateway-deployment.yaml -f k8s/api-gateway-service.yaml
+        -n lms-auth -f k8s/auth-service-deployment.yaml -f k8s/auth-service-service.yaml
+        -n lms-course -f k8s/course-service-deployment.yaml -f k8s/course-service-service.yaml
+        -n lms-payment -f k8s/payment-service-deployment.yaml -f k8s/payment-service-service.yaml
+        -n lms-user -f k8s/user-service-deployment.yaml -f k8s/user-service-service.yaml
+        -n lms-frontend -f k8s/frontend-deployment.yaml -f k8s/frontend-service.yaml
