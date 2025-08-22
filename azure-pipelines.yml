@@ -4,7 +4,9 @@ trigger:
       - main
 
 pool:
-  vmImage: 'ubuntu-latest' # Agent hébergé Azure
+  name: 'Default'
+  demands:
+    - Agent.Name -equals agent-sensipro
 
 variables:
   - group: lms-secrets # Variables secrètes
