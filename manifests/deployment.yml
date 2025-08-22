@@ -1,0 +1,19 @@
+apiVersion : apps/v1
+kind: Deployment
+metadata:
+  name: salmafennanlearningmanagementsystem 
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: salmafennanlearningmanagementsystem
+  template:
+    metadata:
+      labels:
+        app: salmafennanlearningmanagementsystem 
+    spec:
+      containers:
+        - name: salmafennanlearningmanagementsystem 
+          image: sensiproacr.azurecr.io/salmafennanlearningmanagementsystem
+          ports:
+          - containerPort: 80
