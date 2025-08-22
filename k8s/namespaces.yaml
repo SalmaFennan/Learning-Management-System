@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lms-gateway
+  labels:
+    name: lms-gateway
+    app: learning-management-system
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lms-auth
+  labels:
+    name: lms-auth
+    app: learning-management-system
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lms-user
+  labels:
+    name: lms-user
+    app: learning-management-system
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lms-course
+  labels:
+    name: lms-course
+    app: learning-management-system
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lms-payment
+  labels:
+    name: lms-payment
+    app: learning-management-system
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lms-frontend
+  labels:
+    name: lms-frontend
+    app: learning-management-system

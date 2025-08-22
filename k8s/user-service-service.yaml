@@ -1,0 +1,17 @@
+# user-service-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service-service
+  namespace: lms-user
+  labels:
+    app: user-service
+spec:
+  selector:
+    app: user-service
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 3002
+  type: ClusterIP

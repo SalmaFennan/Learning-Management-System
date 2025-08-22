@@ -1,0 +1,52 @@
+# user-service-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: lms-user
+  labels:
+    app: user-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+      - name: user-service
+        image: sensiproacr.azurecr.io/user-service:latest
+        ports:
+        - containerPort: 3002
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: DB_CONNECTION_STRING
+          valueFrom:
+            secretKeyRef:
+              name: db-secrets
+              key: connection-string
+        - name: PORT
+          value: "3002"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3002
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3002
+          initialDelaySeconds: 5
+          periodSeconds: 5

@@ -1,0 +1,17 @@
+# frontend-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: lms-frontend
+  labels:
+    app: frontend
+spec:
+  selector:
+    app: frontend
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80
+  type: LoadBalancer

@@ -1,0 +1,17 @@
+# course-service-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: course-service-service
+  namespace: lms-course
+  labels:
+    app: course-service
+spec:
+  selector:
+    app: course-service
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 3003
+  type: ClusterIP

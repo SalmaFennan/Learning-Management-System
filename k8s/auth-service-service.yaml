@@ -1,0 +1,17 @@
+# auth-service-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service-service
+  namespace: lms-auth
+  labels:
+    app: auth-service
+spec:
+  selector:
+    app: auth-service
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 3001
+  type: ClusterIP
