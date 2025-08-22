@@ -9,8 +9,7 @@ pool:
     - Agent.Name -equals agent-sensipro
 
 variables:
-  - group: lms-secrets # Variables secrètes
-  
+  - group: lms-secrets
   - name: dockerRegistryServiceConnection
     value: sensiProACRConnection
   - name: kubernetesServiceConnection
@@ -32,14 +31,14 @@ steps:
 
   # Build et push des microservices
   - powershell: |
-      Write-Host "DEBUG - containerRegistry: $(containerRegistry)"
-      Write-Host "DEBUG - imageTag: $(imageTag)"
-
       $containerRegistry = "$(containerRegistry)"
       if ([string]::IsNullOrEmpty($containerRegistry)) {
           Write-Error "❌ La variable containerRegistry est vide ! Vérifie tes variables de pipeline."
           exit 1
       }
+
+      Write-Host "DEBUG - containerRegistry: $containerRegistry"
+      Write-Host "DEBUG - imageTag: $(imageTag)"
 
       # Dictionnaire microservice => chemin
       $services = @{
@@ -89,7 +88,6 @@ steps:
         dirLower=$(echo $dir | tr '[:upper:]' '[:lower:]')
         imageTag="$containerRegistry/${dirLower}:$(imageTag)"
         
-        # Vérifie si l'image existe avant le scan
         if docker image inspect "$imageTag" > /dev/null 2>&1; then
             echo "=== Scanning ${dir} image with Trivy ==="
             ./trivy image --exit-code 1 --severity HIGH,CRITICAL "$imageTag"
