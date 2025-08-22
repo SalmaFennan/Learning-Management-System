@@ -36,12 +36,12 @@ steps:
 
       # Dictionnaire microservice => chemin
       $services = @{
-          "api-gateway"   = "Server/src/api-gateway"
-          "auth-service"  = "Server/src/auth-service"
-          "user-service"  = "Server/src/user-service"
+          "api-gateway"     = "Server/src/api-gateway"
+          "auth-service"    = "Server/src/auth-service"
+          "user-service"    = "Server/src/user-service"
           "payment-service" = "Server/src/payment-service"
-          "course-service" = "Server/src/course-service"
-          "Client"        = "Client"  # chemin relatif à la racine du repo
+          "course-service"  = "Server/src/course-service"
+          "Client"          = "Client"  # chemin relatif à la racine du repo
       }
 
       foreach ($dir in $services.Keys) {
@@ -52,8 +52,9 @@ steps:
               continue
           }
 
-          $imageTagFull = "$(containerRegistry)/${dir}:$(imageTag)"
-          $imageLatest = "$(containerRegistry)/${dir}:latest"
+          $dirLower = $dir.ToLower()  # obligatoire pour Docker
+          $imageTagFull = "$(containerRegistry)/$dirLower:$(imageTag)"
+          $imageLatest   = "$(containerRegistry)/$dirLower:latest"
 
           Write-Host "=== Building and pushing ${dir} image from ${fullPath} ==="
 
@@ -78,7 +79,8 @@ steps:
 
       services=("api-gateway" "auth-service" "user-service" "payment-service" "course-service" "Client")
       for dir in "${services[@]}"; do
-        imageTag="$(containerRegistry)/${dir}:$(imageTag)"
+        dirLower=$(echo $dir | tr '[:upper:]' '[:lower:]')  # Docker tags doivent être minuscules
+        imageTag="$(containerRegistry)/${dirLower}:$(imageTag)"
         echo "=== Scanning ${dir} image with Trivy ==="
         ./trivy image --exit-code 1 --severity HIGH,CRITICAL "$imageTag"
         if [ $? -ne 0 ]; then exit 1; fi
