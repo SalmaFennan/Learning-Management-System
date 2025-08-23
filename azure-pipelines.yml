@@ -12,6 +12,8 @@ variables:
   - group: lms-secrets
   - name: dockerRegistryServiceConnection
     value: sensiProACRConnection
+  - name: kubernetesServiceConnection
+    value: sensiProAKSConnection
   - name: containerRegistry
     value: sensiproacr.azurecr.io
   - name: imageTag
@@ -19,7 +21,7 @@ variables:
 
 stages:
 - stage: Build
-  displayName: 'Build and Push Images'
+  displayName: 'Build and Push Backend Images'
   jobs:
   - job: BuildAndPush
     displayName: 'Build and Push all backend microservices'
@@ -99,10 +101,22 @@ stages:
           latest
       continueOnError: true
 
+    # Vérifier les images créées avec PowerShell
+    - task: PowerShell@2
+      displayName: 'List built images'
+      inputs:
+        targetType: 'inline'
+        script: |
+          Write-Host "=== Images built and pushed ==="
+          docker images | Where-Object { $_ -match "$(containerRegistry)" } | ForEach-Object { Write-Host $_ }
+          
+          Write-Host "=== Verifying images in ACR ==="
+          az acr repository list --name sensiproacr --output table
+
 - stage: Deploy
   displayName: 'Deploy to AKS'
   dependsOn: Build
-  condition: succeededOrFailed()
+  condition: succeededOrFailed() 
   jobs:
   - deployment: DeployToAKS
     displayName: 'Deploy backend microservices to AKS'
@@ -118,7 +132,7 @@ stages:
             displayName: 'Check Kubernetes connectivity'
             inputs:
               connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: 'sensiProAKSConnection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
               command: 'get'
               arguments: 'nodes'
             continueOnError: true
@@ -128,7 +142,7 @@ stages:
             displayName: 'Create namespaces'
             inputs:
               connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: 'sensiProAKSConnection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
               command: 'apply'
               arguments: '-f k8s/namespaces.yaml'
             continueOnError: true
@@ -138,7 +152,7 @@ stages:
             displayName: 'Apply secrets'
             inputs:
               connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: 'sensiProAKSConnection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
               command: 'apply'
               arguments: '-f k8s/secrets.yaml'
             continueOnError: true
@@ -173,7 +187,7 @@ stages:
             displayName: 'Deploy backend services'
             inputs:
               connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: 'sensiProAKSConnection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
               command: 'apply'
               arguments: '-f k8s/'
             continueOnError: true
@@ -183,7 +197,7 @@ stages:
             displayName: 'Check deployment status'
             inputs:
               connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: 'sensiProAKSConnection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
               command: 'get'
               arguments: 'pods --all-namespaces'
 
@@ -192,7 +206,7 @@ stages:
             displayName: 'Wait for deployments to be ready'
             inputs:
               connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: 'sensiProAKSConnection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
               command: 'wait'
               arguments: '--for=condition=available --timeout=300s deployment --all'
             continueOnError: true
@@ -202,6 +216,6 @@ stages:
             displayName: 'Final deployment status'
             inputs:
               connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: 'sensiProAKSConnection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
               command: 'get'
               arguments: 'svc,deploy --all-namespaces'
