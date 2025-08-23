@@ -28,14 +28,12 @@ stages:
     steps:
     - checkout: self
 
-    # Connexion à ACR
     - task: Docker@2
       displayName: 'Login to ACR'
       inputs:
         command: 'login'
         containerRegistry: '$(dockerRegistryServiceConnection)'
 
-    # Build Backend Services
     - task: Docker@2
       displayName: 'Build and Push API Gateway'
       inputs:
@@ -96,7 +94,6 @@ stages:
           $(imageTag)
           latest
 
-    # Vérifier les images créées avec PowerShell
     - task: PowerShell@2
       displayName: 'List built images'
       inputs:
@@ -104,7 +101,6 @@ stages:
         script: |
           Write-Host "=== Images built and pushed ==="
           docker images | Where-Object { $_ -match "$(containerRegistry)" } | ForEach-Object { Write-Host $_ }
-          
           Write-Host "=== Verifying images in ACR ==="
           az acr repository list --name sensiproacr --output table
 
@@ -131,7 +127,7 @@ stages:
           $services = @("api-gateway", "auth-service", "user-service", "course-service", "payment-service")
           $resourceGroup = "sensipro-rg"
           $aksCluster = "sensiProAKSCluster"
-          
+
           # Récupérer les credentials AKS
           az aks get-credentials --resource-group $resourceGroup --name $aksCluster --overwrite-existing
 
@@ -146,7 +142,7 @@ stages:
             $deploymentFile = "k8s/$service-deployment.yaml"
             if (Test-Path $deploymentFile) {
               $content = Get-Content $deploymentFile -Raw
-              $newImage = "$containerRegistry/$service:$imageTag"
+              $newImage = "${containerRegistry}/${service}:${imageTag}"
               $content = $content -replace "image:\s*$containerRegistry/$service(:latest|:\d+)?", "image: $newImage"
               Set-Content $deploymentFile $content
               Write-Host "✅ Updated $deploymentFile to $newImage"
