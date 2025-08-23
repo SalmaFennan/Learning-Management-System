@@ -24,7 +24,7 @@ stages:
   displayName: 'Build and Push Images'
   jobs:
   - job: BuildAndPush
-    displayName: 'Build and Push all microservices'
+    displayName: 'Build and Push all backend microservices'
     steps:
     - checkout: self
 
@@ -35,7 +35,7 @@ stages:
         command: 'login'
         containerRegistry: '$(dockerRegistryServiceConnection)'
 
-    # Build Backend Services (ces builds sont généralement plus simples)
+    # Build Backend Services
     - task: Docker@2
       displayName: 'Build and Push API Gateway'
       inputs:
@@ -101,19 +101,6 @@ stages:
           latest
       continueOnError: true
 
-    # Build Frontend (Vite) - Version qui fonctionne
-    - task: Docker@2
-      displayName: 'Build and Push Client (Vite)'
-      inputs:
-        containerRegistry: '$(dockerRegistryServiceConnection)'
-        repository: 'client'
-        command: 'buildAndPush'
-        Dockerfile: 'Client/Dockerfile'
-        buildContext: 'Client'
-        tags: |
-          $(imageTag)
-          latest
-
     # Vérifier les images créées
     - task: Bash@3
       displayName: 'List built images'
@@ -129,10 +116,10 @@ stages:
 - stage: Deploy
   displayName: 'Deploy to AKS'
   dependsOn: Build
-  condition: succeededOrFailed() # Deploy même si certains builds ont échoué
+  condition: succeededOrFailed() 
   jobs:
   - deployment: DeployToAKS
-    displayName: 'Deploy microservices to AKS'
+    displayName: 'Deploy backend microservices to AKS'
     environment: 'production'
     strategy:
       runOnce:
@@ -170,13 +157,13 @@ stages:
               arguments: '-f k8s/secrets.yaml'
             continueOnError: true
 
-          # Mise à jour des images dans les déploiements
+          # Mise à jour des images dans les déploiements (sans client)
           - task: PowerShell@2
             displayName: 'Update deployment image tags'
             inputs:
               targetType: 'inline'
               script: |
-                $services = @("api-gateway", "auth-service", "user-service", "course-service", "payment-service", "client")
+                $services = @("api-gateway", "auth-service", "user-service", "course-service", "payment-service")
                 $containerRegistry = "$(containerRegistry)"
                 $imageTag = "$(imageTag)"
                 
@@ -184,7 +171,6 @@ stages:
                   $newImage = "$containerRegistry/${service}:$imageTag"
                   Write-Host "Updating $service to use image: $newImage"
                   
-                  # Remplacer les tags d'images dans les fichiers YAML de déploiement
                   $deploymentFile = "k8s/$service-deployment.yaml"
                   if (Test-Path $deploymentFile) {
                     $content = Get-Content $deploymentFile -Raw
@@ -196,9 +182,9 @@ stages:
                   }
                 }
 
-          # Déployer tous les services
+          # Déployer tous les backend services
           - task: Kubernetes@1
-            displayName: 'Deploy all services'
+            displayName: 'Deploy backend services'
             inputs:
               connectionType: 'Kubernetes Service Connection'
               kubernetesServiceConnection: '$(kubernetesServiceConnection)'
@@ -215,7 +201,7 @@ stages:
               command: 'get'
               arguments: 'pods --all-namespaces'
 
-          # Attendre que les déploiements soient prêts (timeout 5 minutes)
+          # Attendre que les déploiements soient prêts
           - task: Kubernetes@1
             displayName: 'Wait for deployments to be ready'
             inputs:
