@@ -21,7 +21,7 @@ variables:
 
 stages:
 - stage: Build
-  displayName: 'Build and Push Images'
+  displayName: 'Build and Push Backend Images'
   jobs:
   - job: BuildAndPush
     displayName: 'Build and Push all backend microservices'
@@ -101,17 +101,17 @@ stages:
           latest
       continueOnError: true
 
-    # Vérifier les images créées
-    - task: Bash@3
+    # Vérifier les images créées avec PowerShell (au lieu de Bash)
+    - task: PowerShell@2
       displayName: 'List built images'
       inputs:
         targetType: 'inline'
         script: |
-          echo "=== Images built and pushed ==="
-          docker images | grep "$(containerRegistry)" || echo "No local images found (this is normal in CI/CD)"
+          Write-Host "=== Images built and pushed ==="
+          docker images | Where-Object { $_ -match "$(containerRegistry)" } | ForEach-Object { Write-Host $_ }
           
-          echo "=== Verifying images in ACR ==="
-          az acr repository list --name sensiproacr --output table || echo "Could not list ACR repositories"
+          Write-Host "=== Verifying images in ACR ==="
+          az acr repository list --name sensiproacr --output table
 
 - stage: Deploy
   displayName: 'Deploy to AKS'
@@ -157,7 +157,7 @@ stages:
               arguments: '-f k8s/secrets.yaml'
             continueOnError: true
 
-          # Mise à jour des images dans les déploiements (sans client)
+          # Mise à jour des images dans les déploiements (backend seulement)
           - task: PowerShell@2
             displayName: 'Update deployment image tags'
             inputs:
