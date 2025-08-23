@@ -132,7 +132,7 @@ stages:
             displayName: 'Check Kubernetes connectivity'
             inputs:
               connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              kubernetesServiceConnection: 'sensiProAKSConnection'
               command: 'get'
               arguments: 'nodes'
             continueOnError: true
@@ -142,7 +142,7 @@ stages:
             displayName: 'Create namespaces'
             inputs:
               connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              kubernetesServiceConnection: 'sensiProAKSConnection'
               command: 'apply'
               arguments: '-f k8s/namespaces.yaml'
             continueOnError: true
@@ -152,7 +152,7 @@ stages:
             displayName: 'Apply secrets'
             inputs:
               connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              kubernetesServiceConnection: 'sensiProAKSConnection'
               command: 'apply'
               arguments: '-f k8s/secrets.yaml'
             continueOnError: true
@@ -187,7 +187,7 @@ stages:
             displayName: 'Deploy backend services'
             inputs:
               connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              kubernetesServiceConnection: 'sensiProAKSConnection'
               command: 'apply'
               arguments: '-f k8s/'
             continueOnError: true
@@ -197,7 +197,7 @@ stages:
             displayName: 'Check deployment status'
             inputs:
               connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              kubernetesServiceConnection: 'sensiProAKSConnection'
               command: 'get'
               arguments: 'pods --all-namespaces'
 
@@ -206,7 +206,7 @@ stages:
             displayName: 'Wait for deployments to be ready'
             inputs:
               connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              kubernetesServiceConnection: 'sensiProAKSConnection'
               command: 'wait'
               arguments: '--for=condition=available --timeout=300s deployment --all'
             continueOnError: true
@@ -216,6 +216,6 @@ stages:
             displayName: 'Final deployment status'
             inputs:
               connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              kubernetesServiceConnection: 'sensiProAKSConnection'
               command: 'get'
               arguments: 'svc,deploy --all-namespaces'
