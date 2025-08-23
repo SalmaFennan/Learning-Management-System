@@ -12,7 +12,7 @@ RUN npm ci --verbose
 # Copier le reste du code
 COPY . .
 
-# Ajout pour invalider le cache - Date : 2025-08-23
+# Invalider le cache
 RUN echo "Cache invalidated on 2025-08-23"
 
 # Build de l'app React avec Vite et logs détaillés
