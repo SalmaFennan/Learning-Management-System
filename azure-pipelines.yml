@@ -12,8 +12,8 @@ variables:
   - group: lms-secrets
   - name: dockerRegistryServiceConnection
     value: sensiProACRConnection
-  - name: kubernetesServiceConnection
-    value: sensiProAKSConnection
+  - name: azureSubscription
+    value: b58cdc43-1f3c-4547-b2be-32b4a714e627
   - name: containerRegistry
     value: sensiproacr.azurecr.io
   - name: imageTag
@@ -47,7 +47,6 @@ stages:
         tags: |
           $(imageTag)
           latest
-      continueOnError: true
 
     - task: Docker@2
       displayName: 'Build and Push Auth Service'
@@ -60,7 +59,6 @@ stages:
         tags: |
           $(imageTag)
           latest
-      continueOnError: true
 
     - task: Docker@2
       displayName: 'Build and Push User Service'
@@ -73,7 +71,6 @@ stages:
         tags: |
           $(imageTag)
           latest
-      continueOnError: true
 
     - task: Docker@2
       displayName: 'Build and Push Course Service'
@@ -86,7 +83,6 @@ stages:
         tags: |
           $(imageTag)
           latest
-      continueOnError: true
 
     - task: Docker@2
       displayName: 'Build and Push Payment Service'
@@ -99,7 +95,6 @@ stages:
         tags: |
           $(imageTag)
           latest
-      continueOnError: true
 
     # Vérifier les images créées avec PowerShell
     - task: PowerShell@2
@@ -116,106 +111,58 @@ stages:
 - stage: Deploy
   displayName: 'Deploy to AKS'
   dependsOn: Build
-  condition: succeededOrFailed() 
+  condition: succeededOrFailed()
   jobs:
-  - deployment: DeployToAKS
+  - job: DeployToAKS
     displayName: 'Deploy backend microservices to AKS'
-    environment: 'production'
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-          - checkout: self
+    steps:
+    - checkout: self
 
-          # Vérifier la connectivité Kubernetes
-          - task: Kubernetes@1
-            displayName: 'Check Kubernetes connectivity'
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: 'sensiProAKSConnection'
-              command: 'get'
-              arguments: 'nodes'
-            continueOnError: true
+    - task: AzureCLI@2
+      displayName: 'Deploy backend services to AKS'
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: 'ps'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          # Variables
+          $containerRegistry = "$(containerRegistry)"
+          $imageTag = "$(imageTag)"
+          $services = @("api-gateway", "auth-service", "user-service", "course-service", "payment-service")
+          $resourceGroup = "sensipro-rg"
+          $aksCluster = "sensiProAKSCluster"
+          
+          # Récupérer les credentials AKS
+          az aks get-credentials --resource-group $resourceGroup --name $aksCluster --overwrite-existing
 
           # Créer les namespaces
-          - task: Kubernetes@1
-            displayName: 'Create namespaces'
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: 'sensiProAKSConnection'
-              command: 'apply'
-              arguments: '-f k8s/namespaces.yaml'
-            continueOnError: true
+          kubectl apply -f k8s/namespaces.yaml
 
           # Appliquer les secrets
-          - task: Kubernetes@1
-            displayName: 'Apply secrets'
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: 'sensiProAKSConnection'
-              command: 'apply'
-              arguments: '-f k8s/secrets.yaml'
-            continueOnError: true
+          kubectl apply -f k8s/secrets.yaml
 
-          # Mise à jour des images dans les déploiements
-          - task: PowerShell@2
-            displayName: 'Update deployment image tags'
-            inputs:
-              targetType: 'inline'
-              script: |
-                $services = @("api-gateway", "auth-service", "user-service", "course-service", "payment-service")
-                $containerRegistry = "$(containerRegistry)"
-                $imageTag = "$(imageTag)"
-                
-                foreach ($service in $services) {
-                  $newImage = "$containerRegistry/${service}:$imageTag"
-                  Write-Host "Updating $service to use image: $newImage"
-                  
-                  $deploymentFile = "k8s/$service-deployment.yaml"
-                  if (Test-Path $deploymentFile) {
-                    $content = Get-Content $deploymentFile -Raw
-                    $content = $content -replace "image:\s*$containerRegistry/$service(:latest|:\d+)?", "image: $newImage"
-                    Set-Content $deploymentFile $content
-                    Write-Host "✅ Updated $deploymentFile"
-                  } else {
-                    Write-Host "⚠️ Deployment file not found: $deploymentFile"
-                  }
-                }
+          # Mettre à jour les images dans les déploiements
+          foreach ($service in $services) {
+            $deploymentFile = "k8s/$service-deployment.yaml"
+            if (Test-Path $deploymentFile) {
+              $content = Get-Content $deploymentFile -Raw
+              $newImage = "$containerRegistry/$service:$imageTag"
+              $content = $content -replace "image:\s*$containerRegistry/$service(:latest|:\d+)?", "image: $newImage"
+              Set-Content $deploymentFile $content
+              Write-Host "✅ Updated $deploymentFile to $newImage"
+            } else {
+              Write-Host "⚠️ Deployment file not found: $deploymentFile"
+            }
+          }
 
           # Déployer tous les backend services
-          - task: Kubernetes@1
-            displayName: 'Deploy backend services'
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: 'sensiProAKSConnection'
-              command: 'apply'
-              arguments: '-f k8s/'
-            continueOnError: true
+          kubectl apply -f k8s/
 
-          # Vérifier le statut des déploiements
-          - task: Kubernetes@1
-            displayName: 'Check deployment status'
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: 'sensiProAKSConnection'
-              command: 'get'
-              arguments: 'pods --all-namespaces'
+          # Vérifier le statut des pods
+          kubectl get pods --all-namespaces
 
-          # Attendre que les déploiements soient prêts
-          - task: Kubernetes@1
-            displayName: 'Wait for deployments to be ready'
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: 'sensiProAKSConnection'
-              command: 'wait'
-              arguments: '--for=condition=available --timeout=300s deployment --all'
-            continueOnError: true
+          # Attendre que tous les déploiements soient prêts
+          kubectl wait --for=condition=available --timeout=300s deployment --all
 
-          # Afficher l'état final
-          - task: Kubernetes@1
-            displayName: 'Final deployment status'
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: 'sensiProAKSConnection'
-              command: 'get'
-              arguments: 'svc,deploy --all-namespaces'
+          # Afficher l'état final des services et déploiements
+          kubectl get svc,deploy --all-namespaces
