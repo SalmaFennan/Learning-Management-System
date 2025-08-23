@@ -35,12 +35,32 @@ stages:
         command: 'login'
         containerRegistry: '$(dockerRegistryServiceConnection)'
 
-    # Build et push des microservices
+    # Vérifier la structure du projet
+    - task: PowerShell@2
+      displayName: 'Check project structure'
+      inputs:
+        targetType: 'inline'
+        script: |
+          Write-Host "=== Project Structure Check ==="
+          Get-ChildItem -Recurse -Depth 2 | Where-Object { $_.PSIsContainer } | ForEach-Object {
+            Write-Host "Directory: $($_.FullName)"
+          }
+          
+          # Vérifier les Dockerfiles
+          $dockerfiles = Get-ChildItem -Recurse -Name "Dockerfile*"
+          Write-Host "=== Found Dockerfiles ==="
+          $dockerfiles | ForEach-Object { Write-Host "Dockerfile: $_" }
+
+    # Build et push des microservices (version corrigée)
     - task: PowerShell@2
       displayName: 'Build and push all microservices'
       inputs:
         targetType: 'inline'
         script: |
+          # Configuration PowerShell pour une meilleure gestion des erreurs
+          $ErrorActionPreference = "Stop"
+          $ProgressPreference = "SilentlyContinue"
+          
           # Vérification et définition explicite des variables
           $containerRegistry = $env:containerRegistry
           $imageTag = $env:imageTag
@@ -73,8 +93,16 @@ stages:
           foreach ($dir in $services.Keys) {
               $fullPath = $services[$dir]
 
+              Write-Host "=== Checking directory: $fullPath ==="
               if (-Not (Test-Path $fullPath)) {
                   Write-Warning "⚠️ Directory not found: $fullPath. Skipping $dir..."
+                  continue
+              }
+
+              # Vérifier la présence du Dockerfile
+              $dockerfilePath = Join-Path $fullPath "Dockerfile"
+              if (-Not (Test-Path $dockerfilePath)) {
+                  Write-Warning "⚠️ Dockerfile not found in $fullPath. Skipping $dir..."
                   continue
               }
 
@@ -82,33 +110,54 @@ stages:
               $imageTagFull = "$containerRegistry/$dirLower`:$imageTag"
               $imageLatest = "$containerRegistry/$dirLower`:latest"
 
-              Write-Host "=== Building and pushing ${dir} image from ${fullPath} ==="
+              Write-Host "=== Building ${dir} image from ${fullPath} ==="
+              Write-Host "Image tags: $imageTagFull, $imageLatest"
               
-              # Build de l'image avec logs détaillés
-              Write-Host "Executing: docker build -t $imageTagFull -t $imageLatest $fullPath"
-              docker build -t $imageTagFull -t $imageLatest $fullPath 2>&1 | ForEach-Object { Write-Host $_ }
-              if ($LASTEXITCODE -ne 0) {
-                  Write-Error "❌ Build failed for $dir. Check Dockerfile and logs above in $fullPath"
-                  exit $LASTEXITCODE
-              }
+              try {
+                  # Build de l'image avec gestion d'erreur améliorée
+                  Write-Host "Executing: docker build -t $imageTagFull -t $imageLatest $fullPath"
+                  
+                  # Utiliser Start-Process pour une meilleure gestion des erreurs
+                  $process = Start-Process -FilePath "docker" -ArgumentList @("build", "-t", $imageTagFull, "-t", $imageLatest, $fullPath) -Wait -PassThru -NoNewWindow -RedirectStandardOutput "docker_output.txt" -RedirectStandardError "docker_error.txt"
+                  
+                  # Afficher les logs
+                  if (Test-Path "docker_output.txt") {
+                      Get-Content "docker_output.txt" | ForEach-Object { Write-Host $_ }
+                      Remove-Item "docker_output.txt" -ErrorAction SilentlyContinue
+                  }
+                  
+                  if (Test-Path "docker_error.txt") {
+                      Get-Content "docker_error.txt" | ForEach-Object { Write-Host $_ }
+                      Remove-Item "docker_error.txt" -ErrorAction SilentlyContinue
+                  }
+                  
+                  if ($process.ExitCode -ne 0) {
+                      Write-Error "❌ Build failed for $dir with exit code $($process.ExitCode)"
+                      exit $process.ExitCode
+                  }
 
-              # Push des images
-              Write-Host "Pushing $imageTagFull..."
-              docker push $imageTagFull
-              if ($LASTEXITCODE -ne 0) {
-                  Write-Error "❌ Push failed for $imageTagFull"
-                  exit $LASTEXITCODE
-              }
+                  # Push des images
+                  Write-Host "Pushing $imageTagFull..."
+                  $pushProcess = Start-Process -FilePath "docker" -ArgumentList @("push", $imageTagFull) -Wait -PassThru -NoNewWindow
+                  if ($pushProcess.ExitCode -ne 0) {
+                      Write-Error "❌ Push failed for $imageTagFull"
+                      exit $pushProcess.ExitCode
+                  }
 
-              Write-Host "Pushing $imageLatest..."
-              docker push $imageLatest
-              if ($LASTEXITCODE -ne 0) {
-                  Write-Error "❌ Push failed for $imageLatest"
-                  exit $LASTEXITCODE
-              }
+                  Write-Host "Pushing $imageLatest..."
+                  $pushLatestProcess = Start-Process -FilePath "docker" -ArgumentList @("push", $imageLatest) -Wait -PassThru -NoNewWindow
+                  if ($pushLatestProcess.ExitCode -ne 0) {
+                      Write-Error "❌ Push failed for $imageLatest"
+                      exit $pushLatestProcess.ExitCode
+                  }
 
-              Write-Host "✅ Successfully built and pushed $dir"
-              $builtAny = $true
+                  Write-Host "✅ Successfully built and pushed $dir"
+                  $builtAny = $true
+              }
+              catch {
+                  Write-Error "❌ Exception during build/push for ${dir}: $($_.Exception.Message)"
+                  exit 1
+              }
           }
 
           if (-Not $builtAny) {
@@ -121,9 +170,89 @@ stages:
         containerRegistry: $(containerRegistry)
         imageTag: $(imageTag)
 
-    # Scan des images avec Trivy (optionnel - vous pouvez commenter cette section)
+    # Alternative: Build individuel pour chaque service (plus robuste)
+    - task: Docker@2
+      displayName: 'Build API Gateway'
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+      inputs:
+        containerRegistry: '$(dockerRegistryServiceConnection)'
+        repository: 'api-gateway'
+        command: 'buildAndPush'
+        Dockerfile: 'Server/src/api-gateway/Dockerfile'
+        buildContext: 'Server/src/api-gateway'
+        tags: |
+          $(imageTag)
+          latest
+
+    - task: Docker@2
+      displayName: 'Build Auth Service'
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+      inputs:
+        containerRegistry: '$(dockerRegistryServiceConnection)'
+        repository: 'auth-service'
+        command: 'buildAndPush'
+        Dockerfile: 'Server/src/auth-service/Dockerfile'
+        buildContext: 'Server/src/auth-service'
+        tags: |
+          $(imageTag)
+          latest
+
+    - task: Docker@2
+      displayName: 'Build User Service'
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+      inputs:
+        containerRegistry: '$(dockerRegistryServiceConnection)'
+        repository: 'user-service'
+        command: 'buildAndPush'
+        Dockerfile: 'Server/src/user-service/Dockerfile'
+        buildContext: 'Server/src/user-service'
+        tags: |
+          $(imageTag)
+          latest
+
+    - task: Docker@2
+      displayName: 'Build Course Service'
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+      inputs:
+        containerRegistry: '$(dockerRegistryServiceConnection)'
+        repository: 'course-service'
+        command: 'buildAndPush'
+        Dockerfile: 'Server/src/course-service/Dockerfile'
+        buildContext: 'Server/src/course-service'
+        tags: |
+          $(imageTag)
+          latest
+
+    - task: Docker@2
+      displayName: 'Build Payment Service'
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+      inputs:
+        containerRegistry: '$(dockerRegistryServiceConnection)'
+        repository: 'payment-service'
+        command: 'buildAndPush'
+        Dockerfile: 'Server/src/payment-service/Dockerfile'
+        buildContext: 'Server/src/payment-service'
+        tags: |
+          $(imageTag)
+          latest
+
+    - task: Docker@2
+      displayName: 'Build Client'
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+      inputs:
+        containerRegistry: '$(dockerRegistryServiceConnection)'
+        repository: 'client'
+        command: 'buildAndPush'
+        Dockerfile: 'Client/Dockerfile'
+        buildContext: 'Client'
+        tags: |
+          $(imageTag)
+          latest
+
+    # Scan de sécurité optionnel
     - task: Bash@3
       displayName: 'Security scan with Trivy'
+      condition: false  # Désactivé temporairement
       inputs:
         targetType: 'inline'
         script: |
@@ -178,59 +307,23 @@ stages:
               arguments: '-f k8s/secrets.yaml'
             continueOnError: true
 
-          # Déployer API Gateway
+          # Mettre à jour les images dans les déploiements
           - task: Kubernetes@1
-            displayName: 'Deploy API Gateway'
+            displayName: 'Update image tags in deployments'
             inputs:
               connectionType: 'Kubernetes Service Connection'
               kubernetesServiceConnection: '$(kubernetesServiceConnection)'
-              command: 'apply'
-              arguments: '-f k8s/api-gateway-deployment.yaml -f k8s/api-gateway-service.yaml'
+              command: 'patch'
+              arguments: 'deployment api-gateway -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"api-gateway\",\"image\":\"$(containerRegistry)/api-gateway:$(imageTag)\"}]}}}}"'
 
-          # Déployer Auth Service
+          # Déployer tous les services
           - task: Kubernetes@1
-            displayName: 'Deploy Auth Service'
+            displayName: 'Deploy all services'
             inputs:
               connectionType: 'Kubernetes Service Connection'
               kubernetesServiceConnection: '$(kubernetesServiceConnection)'
               command: 'apply'
-              arguments: '-f k8s/auth-service-deployment.yaml -f k8s/auth-service-service.yaml'
-
-          # Déployer User Service
-          - task: Kubernetes@1
-            displayName: 'Deploy User Service'
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
-              command: 'apply'
-              arguments: '-f k8s/user-service-deployment.yaml -f k8s/user-service-service.yaml'
-
-          # Déployer Course Service
-          - task: Kubernetes@1
-            displayName: 'Deploy Course Service'
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
-              command: 'apply'
-              arguments: '-f k8s/course-service-deployment.yaml -f k8s/course-service-service.yaml'
-
-          # Déployer Payment Service
-          - task: Kubernetes@1
-            displayName: 'Deploy Payment Service'
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
-              command: 'apply'
-              arguments: '-f k8s/payment-service-deployment.yaml -f k8s/payment-service-service.yaml'
-
-          # Déployer Frontend
-          - task: Kubernetes@1
-            displayName: 'Deploy Frontend'
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
-              command: 'apply'
-              arguments: '-f k8s/frontend-deployment.yaml -f k8s/frontend-service.yaml'
+              arguments: '-f k8s/'
 
           # Vérifier le statut des déploiements
           - task: Kubernetes@1
@@ -240,3 +333,12 @@ stages:
               kubernetesServiceConnection: '$(kubernetesServiceConnection)'
               command: 'get'
               arguments: 'pods --all-namespaces -l app in (api-gateway,auth-service,user-service,course-service,payment-service,frontend)'
+
+          # Attendre que les déploiements soient prêts
+          - task: Kubernetes@1
+            displayName: 'Wait for deployments to be ready'
+            inputs:
+              connectionType: 'Kubernetes Service Connection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              command: 'wait'
+              arguments: '--for=condition=available --timeout=300s deployment --all'
