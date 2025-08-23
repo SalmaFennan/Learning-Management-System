@@ -6,14 +6,17 @@ WORKDIR /app
 # Copier package.json et package-lock.json
 COPY package*.json ./
 
-# Installer les dépendances (plus rapide avec npm ci si lockfile présent)
-RUN npm ci
+# Installer les dépendances avec sortie détaillée
+RUN npm ci --verbose
 
 # Copier le reste du code
 COPY . .
 
-# Build de l'app React avec Vite
-RUN npm run build
+# Ajout pour invalider le cache - Date : 2025-08-23
+RUN echo "Cache invalidated on 2025-08-23"
+
+# Build de l'app React avec Vite et logs détaillés
+RUN npm run build --verbose
 
 # Étape 2 : Serveur Nginx
 FROM nginx:alpine
