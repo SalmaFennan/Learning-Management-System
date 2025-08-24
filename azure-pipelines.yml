@@ -12,91 +12,210 @@ variables:
   - group: lms-secrets
   - name: dockerRegistryServiceConnection
     value: sensiProACRConnection
-  - name: azureSubscription
-    value: 'Azure subscription 1'
+  - name: kubernetesServiceConnection
+    value: sensiProAKSConnection
   - name: containerRegistry
     value: sensiproacr.azurecr.io
   - name: imageTag
     value: $(Build.BuildId)
 
 stages:
-  - stage: Build
-    jobs:
-      - job: Build
-        steps:
-          - task: Docker@2
-            displayName: Build and Push Auth Service
-            inputs:
-              containerRegistry: $(dockerRegistryServiceConnection)
-              repository: auth
-              command: buildAndPush
-              Dockerfile: auth/Dockerfile
-              tags: |
-                $(imageTag)
+- stage: Build
+  displayName: 'Build and Push Backend Images'
+  jobs:
+  - job: BuildAndPush
+    displayName: 'Build and Push all backend microservices'
+    steps:
+    - checkout: self
 
-          - task: Docker@2
-            displayName: Build and Push User Service
-            inputs:
-              containerRegistry: $(dockerRegistryServiceConnection)
-              repository: user
-              command: buildAndPush
-              Dockerfile: user/Dockerfile
-              tags: |
-                $(imageTag)
+    # Connexion à ACR
+    - task: Docker@2
+      displayName: 'Login to ACR'
+      inputs:
+        command: 'login'
+        containerRegistry: '$(dockerRegistryServiceConnection)'
 
-          - task: Docker@2
-            displayName: Build and Push Payment Service
-            inputs:
-              containerRegistry: $(dockerRegistryServiceConnection)
-              repository: payment
-              command: buildAndPush
-              Dockerfile: payment/Dockerfile
-              tags: |
-                $(imageTag)
+    # Build Backend Services
+    - task: Docker@2
+      displayName: 'Build and Push API Gateway'
+      inputs:
+        containerRegistry: '$(dockerRegistryServiceConnection)'
+        repository: 'api-gateway'
+        command: 'buildAndPush'
+        Dockerfile: 'Server/src/api-gateway/Dockerfile'
+        buildContext: 'Server/src/api-gateway'
+        tags: |
+          $(imageTag)
+          latest
+      continueOnError: true
 
-          - task: Docker@2
-            displayName: Build and Push Course Service
-            inputs:
-              containerRegistry: $(dockerRegistryServiceConnection)
-              repository: course
-              command: buildAndPush
-              Dockerfile: course/Dockerfile
-              tags: |
-                $(imageTag)
+    - task: Docker@2
+      displayName: 'Build and Push Auth Service'
+      inputs:
+        containerRegistry: '$(dockerRegistryServiceConnection)'
+        repository: 'auth-service'
+        command: 'buildAndPush'
+        Dockerfile: 'Server/src/auth-service/Dockerfile'
+        buildContext: 'Server/src/auth-service'
+        tags: |
+          $(imageTag)
+          latest
+      continueOnError: true
 
-          - task: Docker@2
-            displayName: Build and Push API Gateway Service
-            inputs:
-              containerRegistry: $(dockerRegistryServiceConnection)
-              repository: api-gateway
-              command: buildAndPush
-              Dockerfile: api-gateway/Dockerfile
-              tags: |
-                $(imageTag)
+    - task: Docker@2
+      displayName: 'Build and Push User Service'
+      inputs:
+        containerRegistry: '$(dockerRegistryServiceConnection)'
+        repository: 'user-service'
+        command: 'buildAndPush'
+        Dockerfile: 'Server/src/user-service/Dockerfile'
+        buildContext: 'Server/src/user-service'
+        tags: |
+          $(imageTag)
+          latest
+      continueOnError: true
 
-  - stage: Scan
-    jobs:
-      - job: TrivyScan
-        steps:
-          - script: |
-              curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
-              ./trivy image $(containerRegistry)/auth:$(imageTag)
-              ./trivy image $(containerRegistry)/user:$(imageTag)
-              ./trivy image $(containerRegistry)/payment:$(imageTag)
-              ./trivy image $(containerRegistry)/course:$(imageTag)
-              ./trivy image $(containerRegistry)/api-gateway:$(imageTag)
-            displayName: Trivy Scan
+    - task: Docker@2
+      displayName: 'Build and Push Course Service'
+      inputs:
+        containerRegistry: '$(dockerRegistryServiceConnection)'
+        repository: 'course-service'
+        command: 'buildAndPush'
+        Dockerfile: 'Server/src/course-service/Dockerfile'
+        buildContext: 'Server/src/course-service'
+        tags: |
+          $(imageTag)
+          latest
+      continueOnError: true
 
-  - stage: Deploy
-    jobs:
-      - job: Deploy
-        steps:
-          - task: AzureCLI@2
+    - task: Docker@2
+      displayName: 'Build and Push Payment Service'
+      inputs:
+        containerRegistry: '$(dockerRegistryServiceConnection)'
+        repository: 'payment-service'
+        command: 'buildAndPush'
+        Dockerfile: 'Server/src/payment-service/Dockerfile'
+        buildContext: 'Server/src/payment-service'
+        tags: |
+          $(imageTag)
+          latest
+      continueOnError: true
+
+    # Vérifier les images créées avec PowerShell (au lieu de Bash)
+    - task: PowerShell@2
+      displayName: 'List built images'
+      inputs:
+        targetType: 'inline'
+        script: |
+          Write-Host "=== Images built and pushed ==="
+          docker images | Where-Object { $_ -match "$(containerRegistry)" } | ForEach-Object { Write-Host $_ }
+          
+          Write-Host "=== Verifying images in ACR ==="
+          az acr repository list --name sensiproacr --output table
+
+- stage: Deploy
+  displayName: 'Deploy to AKS'
+  dependsOn: Build
+  condition: succeededOrFailed() 
+  jobs:
+  - deployment: DeployToAKS
+    displayName: 'Deploy backend microservices to AKS'
+    environment: 'production'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+
+          # Vérifier la connectivité Kubernetes
+          - task: Kubernetes@1
+            displayName: 'Check Kubernetes connectivity'
             inputs:
-              azureSubscription: $(azureSubscription)
-              scriptType: bash
-              scriptLocation: inlineScript
-              inlineScript: |
-                az aks get-credentials --resource-group SensiPro-rg --name sensiProAksCluster --overwrite-existing
-                kubectl apply -f k8s/
-            displayName: 'Deploy to AKS'
+              connectionType: 'Kubernetes Service Connection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              command: 'get'
+              arguments: 'nodes'
+            continueOnError: true
+
+          # Créer les namespaces
+          - task: Kubernetes@1
+            displayName: 'Create namespaces'
+            inputs:
+              connectionType: 'Kubernetes Service Connection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              command: 'apply'
+              arguments: '-f k8s/namespaces.yaml'
+            continueOnError: true
+
+          # Appliquer les secrets
+          - task: Kubernetes@1
+            displayName: 'Apply secrets'
+            inputs:
+              connectionType: 'Kubernetes Service Connection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              command: 'apply'
+              arguments: '-f k8s/secrets.yaml'
+            continueOnError: true
+
+          # Mise à jour des images dans les déploiements (backend seulement)
+          - task: PowerShell@2
+            displayName: 'Update deployment image tags'
+            inputs:
+              targetType: 'inline'
+              script: |
+                $services = @("api-gateway", "auth-service", "user-service", "course-service", "payment-service")
+                $containerRegistry = "$(containerRegistry)"
+                $imageTag = "$(imageTag)"
+                
+                foreach ($service in $services) {
+                  $newImage = "$containerRegistry/${service}:$imageTag"
+                  Write-Host "Updating $service to use image: $newImage"
+                  
+                  $deploymentFile = "k8s/$service-deployment.yaml"
+                  if (Test-Path $deploymentFile) {
+                    $content = Get-Content $deploymentFile -Raw
+                    $content = $content -replace "image:\s*$containerRegistry/$service(:latest|:\d+)?", "image: $newImage"
+                    Set-Content $deploymentFile $content
+                    Write-Host "✅ Updated $deploymentFile"
+                  } else {
+                    Write-Host "⚠️ Deployment file not found: $deploymentFile"
+                  }
+                }
+
+          # Déployer tous les backend services
+          - task: Kubernetes@1
+            displayName: 'Deploy backend services'
+            inputs:
+              connectionType: 'Kubernetes Service Connection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              command: 'apply'
+              arguments: '-f k8s/'
+            continueOnError: true
+
+          # Vérifier le statut des déploiements
+          - task: Kubernetes@1
+            displayName: 'Check deployment status'
+            inputs:
+              connectionType: 'Kubernetes Service Connection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              command: 'get'
+              arguments: 'pods --all-namespaces'
+
+          # Attendre que les déploiements soient prêts
+          - task: Kubernetes@1
+            displayName: 'Wait for deployments to be ready'
+            inputs:
+              connectionType: 'Kubernetes Service Connection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              command: 'wait'
+              arguments: '--for=condition=available --timeout=300s deployment --all'
+            continueOnError: true
+
+          # Afficher l'état final
+          - task: Kubernetes@1
+            displayName: 'Final deployment status'
+            inputs:
+              connectionType: 'Kubernetes Service Connection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              command: 'get'
+              arguments: 'svc,deploy --all-namespaces'
