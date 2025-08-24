@@ -1,4 +1,3 @@
-# api-gateway-deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,6 +15,8 @@ spec:
       labels:
         app: api-gateway
     spec:
+      imagePullSecrets:
+      - name: acr-secret
       containers:
       - name: api-gateway
         image: sensiproacr.azurecr.io/api-gateway:latest
@@ -24,18 +25,13 @@ spec:
         env:
         - name: NODE_ENV
           value: "production"
-        - name: AUTH_SERVICE_URL
-          value: "http://auth-service-service.lms-auth.svc.cluster.local"
-        - name: USER_SERVICE_URL
-          value: "http://user-service-service.lms-user.svc.cluster.local"
-        - name: COURSE_SERVICE_URL
-          value: "http://course-service-service.lms-course.svc.cluster.local"
-        - name: PAYMENT_SERVICE_URL
-          value: "http://payment-service-service.lms-payment.svc.cluster.local"
+        envFrom:
+        - secretRef:
+            name: api-gateway-secrets
         resources:
           requests:
-            memory: "128Mi"
-            cpu: "100m"
+            memory: "256Mi"
+            cpu: "250m"
           limits:
             memory: "512Mi"
             cpu: "500m"

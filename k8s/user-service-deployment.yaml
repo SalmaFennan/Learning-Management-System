@@ -1,36 +1,33 @@
-# user-service-deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: user-service
+  name: user
   namespace: lms-user
   labels:
-    app: user-service
+    app: user
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: user-service
+      app: user
   template:
     metadata:
       labels:
-        app: user-service
+        app: user
     spec:
+      imagePullSecrets:
+      - name: acr-secret
       containers:
-      - name: user-service
-        image: sensiproacr.azurecr.io/user-service:latest
+      - name: user
+        image: sensiproacr.azurecr.io/user:latest
         ports:
         - containerPort: 3002
         env:
         - name: NODE_ENV
           value: "production"
-        - name: DB_CONNECTION_STRING
-          valueFrom:
-            secretKeyRef:
-              name: db-secrets
-              key: connection-string
-        - name: PORT
-          value: "3002"
+        envFrom:
+        - secretRef:
+            name: user-secrets
         resources:
           requests:
             memory: "128Mi"

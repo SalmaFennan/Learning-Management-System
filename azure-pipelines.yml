@@ -13,152 +13,90 @@ variables:
   - name: dockerRegistryServiceConnection
     value: sensiProACRConnection
   - name: azureSubscription
-    value: b58cdc43-1f3c-4547-b2be-32b4a714e627
+    value: 'Azure subscription 1'
   - name: containerRegistry
     value: sensiproacr.azurecr.io
   - name: imageTag
     value: $(Build.BuildId)
 
 stages:
-- stage: Build
-  displayName: 'Build and Push Backend Images'
-  jobs:
-  - job: BuildAndPush
-    displayName: 'Build and Push all backend microservices'
-    steps:
-    - checkout: self
+  - stage: Build
+    jobs:
+      - job: Build
+        steps:
+          - task: Docker@2
+            displayName: Build and Push Auth Service
+            inputs:
+              containerRegistry: $(dockerRegistryServiceConnection)
+              repository: auth
+              command: buildAndPush
+              Dockerfile: auth/Dockerfile
+              tags: |
+                $(imageTag)
 
-    - task: Docker@2
-      displayName: 'Login to ACR'
-      inputs:
-        command: 'login'
-        containerRegistry: '$(dockerRegistryServiceConnection)'
+          - task: Docker@2
+            displayName: Build and Push User Service
+            inputs:
+              containerRegistry: $(dockerRegistryServiceConnection)
+              repository: user
+              command: buildAndPush
+              Dockerfile: user/Dockerfile
+              tags: |
+                $(imageTag)
 
-    - task: Docker@2
-      displayName: 'Build and Push API Gateway'
-      inputs:
-        containerRegistry: '$(dockerRegistryServiceConnection)'
-        repository: 'api-gateway'
-        command: 'buildAndPush'
-        Dockerfile: 'Server/src/api-gateway/Dockerfile'
-        buildContext: 'Server/src/api-gateway'
-        tags: |
-          $(imageTag)
-          latest
+          - task: Docker@2
+            displayName: Build and Push Payment Service
+            inputs:
+              containerRegistry: $(dockerRegistryServiceConnection)
+              repository: payment
+              command: buildAndPush
+              Dockerfile: payment/Dockerfile
+              tags: |
+                $(imageTag)
 
-    - task: Docker@2
-      displayName: 'Build and Push Auth Service'
-      inputs:
-        containerRegistry: '$(dockerRegistryServiceConnection)'
-        repository: 'auth-service'
-        command: 'buildAndPush'
-        Dockerfile: 'Server/src/auth-service/Dockerfile'
-        buildContext: 'Server/src/auth-service'
-        tags: |
-          $(imageTag)
-          latest
+          - task: Docker@2
+            displayName: Build and Push Course Service
+            inputs:
+              containerRegistry: $(dockerRegistryServiceConnection)
+              repository: course
+              command: buildAndPush
+              Dockerfile: course/Dockerfile
+              tags: |
+                $(imageTag)
 
-    - task: Docker@2
-      displayName: 'Build and Push User Service'
-      inputs:
-        containerRegistry: '$(dockerRegistryServiceConnection)'
-        repository: 'user-service'
-        command: 'buildAndPush'
-        Dockerfile: 'Server/src/user-service/Dockerfile'
-        buildContext: 'Server/src/user-service'
-        tags: |
-          $(imageTag)
-          latest
+          - task: Docker@2
+            displayName: Build and Push API Gateway Service
+            inputs:
+              containerRegistry: $(dockerRegistryServiceConnection)
+              repository: api-gateway
+              command: buildAndPush
+              Dockerfile: api-gateway/Dockerfile
+              tags: |
+                $(imageTag)
 
-    - task: Docker@2
-      displayName: 'Build and Push Course Service'
-      inputs:
-        containerRegistry: '$(dockerRegistryServiceConnection)'
-        repository: 'course-service'
-        command: 'buildAndPush'
-        Dockerfile: 'Server/src/course-service/Dockerfile'
-        buildContext: 'Server/src/course-service'
-        tags: |
-          $(imageTag)
-          latest
+  - stage: Scan
+    jobs:
+      - job: TrivyScan
+        steps:
+          - script: |
+              curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
+              ./trivy image $(containerRegistry)/auth:$(imageTag)
+              ./trivy image $(containerRegistry)/user:$(imageTag)
+              ./trivy image $(containerRegistry)/payment:$(imageTag)
+              ./trivy image $(containerRegistry)/course:$(imageTag)
+              ./trivy image $(containerRegistry)/api-gateway:$(imageTag)
+            displayName: Trivy Scan
 
-    - task: Docker@2
-      displayName: 'Build and Push Payment Service'
-      inputs:
-        containerRegistry: '$(dockerRegistryServiceConnection)'
-        repository: 'payment-service'
-        command: 'buildAndPush'
-        Dockerfile: 'Server/src/payment-service/Dockerfile'
-        buildContext: 'Server/src/payment-service'
-        tags: |
-          $(imageTag)
-          latest
-
-    - task: PowerShell@2
-      displayName: 'List built images'
-      inputs:
-        targetType: 'inline'
-        script: |
-          Write-Host "=== Images built and pushed ==="
-          docker images | Where-Object { $_ -match "$(containerRegistry)" } | ForEach-Object { Write-Host $_ }
-          Write-Host "=== Verifying images in ACR ==="
-          az acr repository list --name sensiproacr --output table
-
-- stage: Deploy
-  displayName: 'Deploy to AKS'
-  dependsOn: Build
-  condition: succeededOrFailed()
-  jobs:
-  - job: DeployToAKS
-    displayName: 'Deploy backend microservices to AKS'
-    steps:
-    - checkout: self
-
-    - task: AzureCLI@2
-      displayName: 'Deploy backend services to AKS'
-      inputs:
-        azureSubscription: '$(azureSubscription)'
-        scriptType: 'ps'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-          # Variables
-          $containerRegistry = "$(containerRegistry)"
-          $imageTag = "$(imageTag)"
-          $services = @("api-gateway", "auth-service", "user-service", "course-service", "payment-service")
-          $resourceGroup = "sensipro-rg"
-          $aksCluster = "sensiProAKSCluster"
-
-          # Récupérer les credentials AKS
-          az aks get-credentials --resource-group $resourceGroup --name $aksCluster --overwrite-existing
-
-          # Créer les namespaces
-          kubectl apply -f k8s/namespaces.yaml
-
-          # Appliquer les secrets
-          kubectl apply -f k8s/secrets.yaml
-
-          # Mettre à jour les images dans les déploiements
-          foreach ($service in $services) {
-            $deploymentFile = "k8s/$service-deployment.yaml"
-            if (Test-Path $deploymentFile) {
-              $content = Get-Content $deploymentFile -Raw
-              $newImage = "${containerRegistry}/${service}:${imageTag}"
-              $content = $content -replace "image:\s*$containerRegistry/$service(:latest|:\d+)?", "image: $newImage"
-              Set-Content $deploymentFile $content
-              Write-Host "✅ Updated $deploymentFile to $newImage"
-            } else {
-              Write-Host "⚠️ Deployment file not found: $deploymentFile"
-            }
-          }
-
-          # Déployer tous les backend services
-          kubectl apply -f k8s/
-
-          # Vérifier le statut des pods
-          kubectl get pods --all-namespaces
-
-          # Attendre que tous les déploiements soient prêts
-          kubectl wait --for=condition=available --timeout=300s deployment --all
-
-          # Afficher l'état final des services et déploiements
-          kubectl get svc,deploy --all-namespaces
+  - stage: Deploy
+    jobs:
+      - job: Deploy
+        steps:
+          - task: AzureCLI@2
+            inputs:
+              azureSubscription: $(azureSubscription)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az aks get-credentials --resource-group SensiPro-rg --name sensiProAksCluster --overwrite-existing
+                kubectl apply -f k8s/
+            displayName: 'Deploy to AKS'
